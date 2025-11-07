@@ -649,7 +649,7 @@ def main():
         
         # Control de vista basado en el rol del usuario
         st.set_page_config(page_title="Aussie Cines Dashboard", layout="wide")
-        st.title("🇦🇺 Aussie Cines") 
+        st.title("🎬 Aussie Cines") 
         st.subheader(f"👋 Bienvenid@ {st.session_state['username']}")
         
         user_role = st.session_state['user_role']
