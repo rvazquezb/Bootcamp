@@ -1,7 +1,0 @@
-streamlit
-pandas
-numpy
-sqlalchemy
-plotly
-bcrypt
-scikit-learn
