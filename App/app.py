@@ -602,7 +602,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
         # el lag_1 para la siguiente iteración.
         for j in range(LAG_DAYS, 1, -1):
             current_input[f'revenue_lag_{j}'] = current_input[f'revenue_lag_{j-1}']
-        current_input['revenue_lag_1'] = next_revenue # <--- Clave de la acumulación
+        current_input['revenue_lag_1'] = df_backtest_actuals['actual'].iloc[i] # <--- Clave de la acumulación
         
     # ----------------------------------------------------
     # 4. CALCULAR MÉTRICAS DE BACKTESTING
