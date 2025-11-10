@@ -230,7 +230,7 @@ def graficos(df):
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
             df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
-            forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df)
+            forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df, forecast_periods = forecast_days)
             df_series = df.groupby('date')['total_sales'].sum().asfreq('D').ffill()
 
             # Run SARIMA backtest on the last 90 days
