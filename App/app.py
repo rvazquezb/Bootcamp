@@ -322,7 +322,7 @@ def graficos(df):
         available_cinemas = sorted(df_analysis['cinema_code'].unique())
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
-            df_features, forecast_results, future_dates, mae = run_sklearn_prediction(df, forecast_periods=forecast_days)
+            df_features, forecast_results, future_dates, historical_mae, backtest_results, backtest_mae = run_sklearn_prediction(df, forecast_periods=forecast_days)
 
             df_historic = df_features.rename(columns={'ds': 'Fecha', 'y': 'Revenue'}).set_index('Fecha')['Revenue']
             df_forecast = forecast_results.rename(columns={'prediction': 'Revenue'})['Revenue']
@@ -364,8 +364,16 @@ def graficos(df):
 
             st.metric(
                 label="Error Absoluto Medio (MAE)",
-                value=f"€ {mae:,.0f}"
+                value=f"€ {historical_mae:,.0f}"
             )
+
+            st.metric(
+                label="MAE de Backtesting (últimos 90 días)",
+                value=f"€ {backtest_mae:,.0f}"
+            )
+
+            if backtest_mae > historical_mae * 1.5:
+                st.warning("El error de Backtesting es significativamente mayor que el error de entrenamiento. ¡Cuidado con el sobreajuste!")
         
         with all_tabs[4]:
             selected_cinema = st.selectbox(
@@ -541,14 +549,69 @@ def create_features(df, lag=21):
     return df_agg
 
 @st.cache_data
-def run_sklearn_prediction(df, forecast_periods=30):
+def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     LAG_DAYS = 21
     
     df_features = create_features(df, lag=LAG_DAYS)
     
     TARGET = 'y'
     FEATURES = [col for col in df_features.columns if col not in ['ds', TARGET]]
+
+    # Tamaño de los datos de entrenamiento (restantes después del backtesting)
+    train_size = len(df_features) - backtest_periods
     
+    # Datos de entrenamiento para el modelo inicial
+    df_train = df_features.iloc[:train_size].copy()
+    
+    # Datos de validación/backtesting
+    df_backtest_actuals = df_features.iloc[train_size:].copy()
+    
+    X_train = df_train[FEATURES]
+    y_train = df_train[TARGET]
+    
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+
+    backtest_results = pd.DataFrame(
+        index=df_backtest_actuals['ds'], 
+        columns=['actual', 'prediction']
+    )
+    backtest_results['actual'] = df_backtest_actuals['y'].values
+    
+    # Tomar la última fila de entrenamiento como punto de partida para el bucle
+    last_train_row = df_train.iloc[-1]
+    current_input = last_train_row[FEATURES].to_dict()
+
+    # Bucle de predicción acumulativa (Walk-Forward)
+    for i, date in enumerate(df_backtest_actuals['ds']):
+        
+        # 3a. Actualizar Features de Fecha (día de la semana, etc.)
+        current_input['dayofweek'] = date.dayofweek
+        current_input['month'] = date.month
+        current_input['dayofyear'] = date.dayofyear
+        current_input['is_weekend'] = 1 if date.dayofweek >= 5 else 0
+        
+        # 3b. Predecir el siguiente valor
+        X_pred = pd.DataFrame([current_input], columns=FEATURES)
+        next_revenue = model.predict(X_pred)[0]
+        
+        backtest_results.loc[date, 'prediction'] = next_revenue
+        
+        # 3c. Acumular el Error (Actualizar los Lags)
+        # Aquí propagamos el error: usamos la PREDICCIÓN (next_revenue) como
+        # el lag_1 para la siguiente iteración.
+        for j in range(LAG_DAYS, 1, -1):
+            current_input[f'revenue_lag_{j}'] = current_input[f'revenue_lag_{j-1}']
+        current_input['revenue_lag_1'] = next_revenue # <--- Clave de la acumulación
+        
+    # ----------------------------------------------------
+    # 4. CALCULAR MÉTRICAS DE BACKTESTING
+    # ----------------------------------------------------
+    backtest_mae = mean_absolute_error(
+        backtest_results['actual'].values, 
+        backtest_results['prediction'].values
+    )
+
     X = df_features[FEATURES]
     y = df_features[TARGET]
     
@@ -581,7 +644,7 @@ def run_sklearn_prediction(df, forecast_periods=30):
             current_input[f'revenue_lag_{i}'] = current_input[f'revenue_lag_{i-1}']
         current_input['revenue_lag_1'] = next_revenue 
         
-    return df_features, forecast_results, future_dates, mae
+    return df_features, forecast_results, future_dates, mae, backtest_results, backtest_mae
 
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
