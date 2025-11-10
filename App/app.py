@@ -635,7 +635,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     return df_features, forecast_results, future_dates, historical_mae, backtest_results, backtest_mae
 
 @st.cache_data
-def run_sarima_prediction(df, forecast_periods=30, order=(0, 1, 1), seasonal_order=(0, 1, 1, 7)):
+def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_order=(0, 1, 1, 7)):
     
     # 1. Preparar la serie de tiempo
     df_series = df.groupby('date')['total_sales'].sum().reset_index()
@@ -644,7 +644,8 @@ def run_sarima_prediction(df, forecast_periods=30, order=(0, 1, 1), seasonal_ord
     
     # Datos de entrenamiento
     train_data = df_series.asfreq('D', fill_value=0)
-    
+    LAG_MAX = 21 # Usamos la misma ventana que tu RF
+    train_data = train_data.iloc[LAG_MAX:]
     # 2. Ajustar el modelo SARIMA
     try:
         model = sm.tsa.statespace.SARIMAX(
@@ -655,7 +656,7 @@ def run_sarima_prediction(df, forecast_periods=30, order=(0, 1, 1), seasonal_ord
             enforce_invertibility=False
         )
         # Usamos 'low_memory=True' para evitar errores de RAM en Streamlit Cloud
-        model_fit = model.fit(disp=False, low_memory=True) 
+        model_fit = model.fit(disp=False, low_memory=True, method='bfgs') 
         
         # 3. Pronóstico
         last_date = train_data.index.max()
