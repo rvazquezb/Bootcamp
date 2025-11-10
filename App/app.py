@@ -325,6 +325,15 @@ def graficos(df):
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
             df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
             forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df)
+            df_series = df.groupby('date')['total_sales'].sum().asfreq('D').ffill()
+
+            # Run SARIMA backtest on the last 90 days
+            aligned_sarima, backtest_mae_sarima = sarima_backtest(
+                df_series,
+                order=(1, 0, 1),
+                seasonal_order=(1, 1, 1, 7),
+                backtest_periods=90
+            )
             sarima_succeeded = forecast_results_sarima is not None and mae_sarima is not None
             st.header("Análisis de Rendimiento del Modelo")
 
@@ -340,8 +349,7 @@ def graficos(df):
                 st.subheader("SARIMA (Estacionalidad 7)")
                 if sarima_succeeded:
                     st.metric(label="MAE Histórico (Ajuste)", value=f"{mae_sarima:,.0f}")
-                    st.markdown("---")
-                    st.caption("SARIMA requiere un *backtesting* más complejo. El error de propagación no aplica aquí.")
+                    st.caption(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_sarima:,.0f}")
                 else:
                     st.error("No se pudo ajustar el modelo SARIMA. Revise la estacionalidad y los órdenes (p,d,q).")
             if forecast_results_sarima is not None:
@@ -688,6 +696,45 @@ def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_ord
         # st.error(f"Error al ajustar el modelo SARIMA: {e}") # Mejor comentarlo para Streamlit Cloud
         st.error("Error al ajustar el modelo SARIMA. Revisa los logs.")
         return None, None, None
+
+def sarima_backtest(series, order, seasonal_order, backtest_periods=90):
+    """
+    Rolling backtest for SARIMA using the same last N days as test set.
+    """
+    series = series.asfreq('D').ffill()
+    n = len(series)
+    train_size = n - backtest_periods
+
+    preds = []
+    test_index = []
+
+    for i in range(train_size, n):
+        train = series.iloc[:i]
+        test = series.iloc[i:i + 1]
+
+        try:
+            model = sm.tsa.statespace.SARIMAX(
+                train,
+                order=order,
+                seasonal_order=seasonal_order,
+                enforce_stationarity=False,
+                enforce_invertibility=False
+            )
+            model_fit = model.fit(disp=False)
+            forecast = model_fit.forecast(steps=1)
+            preds.append(forecast.values[0])
+            test_index.append(test.index[0])
+        except Exception as e:
+            preds.append(np.nan)
+            test_index.append(test.index[0])
+
+    preds = pd.Series(preds, index=test_index)
+    aligned = pd.concat([series.loc[preds.index], preds], axis=1)
+    aligned.columns = ['actual', 'predicted']
+
+    mae = mean_absolute_error(aligned['actual'].dropna(), aligned['predicted'].dropna())
+
+    return aligned, mae
 
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
