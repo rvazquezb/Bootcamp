@@ -349,7 +349,7 @@ def graficos(df):
                 st.subheader("SARIMA (Estacionalidad 7)")
                 if sarima_succeeded:
                     st.metric(label="MAE Histórico (Ajuste)", value=f"{mae_sarima:,.0f}")
-                    st.caption(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_sarima:,.0f}")
+                    st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_sarima:,.0f}")
                 else:
                     st.error("No se pudo ajustar el modelo SARIMA. Revise la estacionalidad y los órdenes (p,d,q).")
             if forecast_results_sarima is not None:
