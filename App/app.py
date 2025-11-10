@@ -324,7 +324,7 @@ def graficos(df):
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
             df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
-
+            sarima_succeeded = forecast_results_sarima is not None and mae_sarima is not None
             forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df)
 
             st.header("Análisis de Rendimiento del Modelo")
@@ -339,10 +339,12 @@ def graficos(df):
 
             with col_sarima:
                 st.subheader("SARIMA (Estacionalidad 7)")
-                st.metric(label="MAE Histórico (Ajuste)", value=f"{mae_sarima:,.0f}")
-                st.markdown("---")
-                st.caption("SARIMA requiere un *backtesting* más complejo. El error de propagación no aplica aquí.")
-
+                if sarima_succeeded:
+                    st.metric(label="MAE Histórico (Ajuste)", value=f"{mae_sarima:,.0f}")
+                    st.markdown("---")
+                    st.caption("SARIMA requiere un *backtesting* más complejo. El error de propagación no aplica aquí.")
+                else:
+                    st.error("No se pudo ajustar el modelo SARIMA. Revise la estacionalidad y los órdenes (p,d,q).")
             if forecast_results_sarima is not None:
                 st.header("Pronóstico de Ventas (Comparación de Modelos)")
 
