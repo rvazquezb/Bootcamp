@@ -550,28 +550,41 @@ def create_features(df, lag=14):
 
 @st.cache_data
 def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
-    LAG_DAYS = 14
+    LAG_DAYS = 21 # Días de lag para las features
     
+    # 1. Crear features y limpiar NaNs (debido a los lags)
     df_features = create_features(df, lag=LAG_DAYS)
     
     TARGET = 'y'
     FEATURES = [col for col in df_features.columns if col not in ['ds', TARGET]]
-
-    # Tamaño de los datos de entrenamiento (restantes después del backtesting)
+    
+    # 2. División de Datos para Entrenamiento y Backtesting
     train_size = len(df_features) - backtest_periods
     
-    # Datos de entrenamiento para el modelo inicial
+    # Conjuntos de datos
     df_train = df_features.iloc[:train_size].copy()
-    
-    # Datos de validación/backtesting
     df_backtest_actuals = df_features.iloc[train_size:].copy()
     
     X_train = df_train[FEATURES]
     y_train = df_train[TARGET]
     
-    model = RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=42)
+    # 3. Entrenamiento del Modelo (Ajustado para menos Overfitting)
+    model = RandomForestRegressor(
+        n_estimators=100, 
+        max_depth=10,        # Reducción de la complejidad
+        min_samples_leaf=5,  # Regularización adicional
+        random_state=42
+    )
     model.fit(X_train, y_train)
-
+    
+    # MAE Histórico (entrenamiento/ajuste)
+    y_pred_history = model.predict(X_train)
+    mae_history = mean_absolute_error(y_train, y_pred_history)
+    
+    # ----------------------------------------------------
+    # 4. BACKTESTING WALK-FORWARD (PRUEBA DE DIAGNÓSTICO)
+    # ----------------------------------------------------
+    
     backtest_results = pd.DataFrame(
         index=df_backtest_actuals['ds'], 
         columns=['actual', 'prediction']
@@ -581,70 +594,68 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     # Tomar la última fila de entrenamiento como punto de partida para el bucle
     last_train_row = df_train.iloc[-1]
     current_input = last_train_row[FEATURES].to_dict()
-
-    # Bucle de predicción acumulativa (Walk-Forward)
+    
+    # Bucle de predicción Walk-Forward
     for i, date in enumerate(df_backtest_actuals['ds']):
         
-        # 3a. Actualizar Features de Fecha (día de la semana, etc.)
+        # 4a. Actualizar Features de Fecha (día de la semana, etc.)
         current_input['dayofweek'] = date.dayofweek
         current_input['month'] = date.month
         current_input['dayofyear'] = date.dayofyear
         current_input['is_weekend'] = 1 if date.dayofweek >= 5 else 0
         
-        # 3b. Predecir el siguiente valor
+        # 4b. Predecir el siguiente valor
         X_pred = pd.DataFrame([current_input], columns=FEATURES)
         next_revenue = model.predict(X_pred)[0]
         
         backtest_results.loc[date, 'prediction'] = next_revenue
         
-        # 3c. Acumular el Error (Actualizar los Lags)
-        # Aquí propagamos el error: usamos la PREDICCIÓN (next_revenue) como
-        # el lag_1 para la siguiente iteración.
-        for j in range(LAG_DAYS, 1, -1):
-            current_input[f'revenue_lag_{j}'] = current_input[f'revenue_lag_{j-1}']
-        current_input['revenue_lag_1'] = df_backtest_actuals['actual'].iloc[i] # <--- Clave de la acumulación
+        # 4c. ACUMULACIÓN (Usando el VALOR REAL para evitar la propagación)
+        # Esto es la Prueba de Diagnóstico.
+        actual_revenue_t = backtest_results.loc[date, 'actual'] 
         
-    # ----------------------------------------------------
-    # 4. CALCULAR MÉTRICAS DE BACKTESTING
-    # ----------------------------------------------------
+        for j in range(LAG_DAYS, 1, -1):
+            # Mover los lags: lag_2 se convierte en lag_3, etc.
+            current_input[f'revenue_lag_{j}'] = current_input[f'revenue_lag_{j-1}']
+            
+        # El Lag_1 para la siguiente iteración es el valor real de hoy
+        current_input['revenue_lag_1'] = actual_revenue_t
+        
+    # 4d. Cálculo de MAE del Backtesting
     backtest_mae = mean_absolute_error(
         backtest_results['actual'].values, 
         backtest_results['prediction'].values
     )
-
-    X = df_features[FEATURES]
-    y = df_features[TARGET]
     
-    model = RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=42)
-    model.fit(X, y)
-    
-    y_pred_history = model.predict(X)
-    mae = mean_absolute_error(y, y_pred_history)
+    # ----------------------------------------------------
+    # 5. PRONÓSTICO FUTURO RECURSIVO (Walk-Forward)
+    # ----------------------------------------------------
     
     last_date = df_features['ds'].max()
     future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods)
-    
     forecast_results = pd.DataFrame(index=future_dates, columns=['prediction'])
     
-    last_row = df_features.iloc[-1]
-    current_input = last_row[FEATURES].to_dict()
+    # Tomar la última fila de df_features para empezar el pronóstico
+    last_row_full = df_features.iloc[-1]
+    current_forecast_input = last_row_full[FEATURES].to_dict()
     
     for date in future_dates:
-        current_input['dayofweek'] = date.dayofweek
-        current_input['month'] = date.month
-        current_input['dayofyear'] = date.dayofyear
-        current_input['is_weekend'] = 1 if date.dayofweek >= 5 else 0
+        current_forecast_input['dayofweek'] = date.dayofweek
+        current_forecast_input['month'] = date.month
+        current_forecast_input['dayofyear'] = date.dayofyear
+        current_forecast_input['is_weekend'] = 1 if date.dayofweek >= 5 else 0
         
-        X_pred = pd.DataFrame([current_input], columns=FEATURES)
-        next_revenue = model.predict(X_pred)[0]
+        X_pred_forecast = pd.DataFrame([current_forecast_input], columns=FEATURES)
+        next_revenue_forecast = model.predict(X_pred_forecast)[0]
         
-        forecast_results.loc[date, 'prediction'] = next_revenue
+        forecast_results.loc[date, 'prediction'] = next_revenue_forecast
         
+        # PROPAGACIÓN REAL DEL ERROR para el Pronóstico Futuro
         for i in range(LAG_DAYS, 1, -1):
-            current_input[f'revenue_lag_{i}'] = current_input[f'revenue_lag_{i-1}']
-        current_input['revenue_lag_1'] = next_revenue 
+            current_forecast_input[f'revenue_lag_{i}'] = current_forecast_input[f'revenue_lag_{i-1}']
+        current_forecast_input['revenue_lag_1'] = next_revenue_forecast
         
-    return df_features, forecast_results, future_dates, mae, backtest_results, backtest_mae
+    return df_features, forecast_results, future_dates, mae_history, backtest_results, backtest_mae
 
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
