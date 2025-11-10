@@ -531,7 +531,7 @@ def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket
 def change_view(view_name):
     st.session_state['active_view'] = view_name
 
-def create_features(df, lag=21):
+def create_features(df, lag=14):
 
     df_agg = df.groupby('date')['total_sales'].sum().reset_index()
     df_agg.columns = ['ds', 'y']
@@ -550,7 +550,7 @@ def create_features(df, lag=21):
 
 @st.cache_data
 def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
-    LAG_DAYS = 21
+    LAG_DAYS = 14
     
     df_features = create_features(df, lag=LAG_DAYS)
     
@@ -569,7 +569,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     X_train = df_train[FEATURES]
     y_train = df_train[TARGET]
     
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model = RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=42)
     model.fit(X_train, y_train)
 
     backtest_results = pd.DataFrame(
@@ -615,7 +615,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     X = df_features[FEATURES]
     y = df_features[TARGET]
     
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model = RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=42)
     model.fit(X, y)
     
     y_pred_history = model.predict(X)
