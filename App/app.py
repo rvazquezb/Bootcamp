@@ -324,9 +324,8 @@ def graficos(df):
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
             df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
-            sarima_succeeded = forecast_results_sarima is not None and mae_sarima is not None
             forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df)
-
+            sarima_succeeded = forecast_results_sarima is not None and mae_sarima is not None
             st.header("Análisis de Rendimiento del Modelo")
 
             col_rf, col_sarima = st.columns(2)
