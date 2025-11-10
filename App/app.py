@@ -644,8 +644,7 @@ def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_ord
     
     # Datos de entrenamiento
     train_data = df_series.asfreq('D', fill_value=0)
-    LAG_MAX = 21 # Usamos la misma ventana que tu RF
-    train_data = train_data.iloc[LAG_MAX:]
+
     # 2. Ajustar el modelo SARIMA
     try:
         model = sm.tsa.statespace.SARIMAX(
