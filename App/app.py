@@ -324,12 +324,7 @@ def graficos(df):
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
             df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
-            forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(
-                df, 
-                forecast_periods=forecast_days, 
-                order=(1, 1, 1), 
-                seasonal_order=(0, 0, 0, 0) # <--- ¡EL CAMBIO CLAVE!
-            )
+            forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df)
             sarima_succeeded = forecast_results_sarima is not None and mae_sarima is not None
             st.header("Análisis de Rendimiento del Modelo")
 
@@ -640,7 +635,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     return df_features, forecast_results, future_dates, historical_mae, backtest_results, backtest_mae
 
 @st.cache_data
-def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_order=(0, 1, 1, 7)):
+def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_order=(1, 1, 1, 7)):
     
     # 1. Preparar la serie de tiempo
     df_series = df.groupby('date')['total_sales'].sum().reset_index()
@@ -648,7 +643,8 @@ def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_ord
     df_series = df_series.set_index('ds')['y']
     
     # Datos de entrenamiento
-    train_data = df_series.asfreq('D', fill_value=0)
+    train_data = df_series.asfreq('D')
+    train_data = train_data.ffill()
 
     # 2. Ajustar el modelo SARIMA
     try:
@@ -657,14 +653,15 @@ def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_ord
             order=order,
             seasonal_order=seasonal_order,
             enforce_stationarity=False,
-            enforce_invertibility=False
+            enforce_invertibility=False,
+            low_memory=True
         )
         # Usamos 'low_memory=True' para evitar errores de RAM en Streamlit Cloud
-        model_fit = model.fit(disp=False, low_memory=True, method='bfgs', maxiter=200, tol=1e-5) 
+        model_fit = model.fit(disp=False, method='lbfgs', maxiter=200, tol=1e-5) 
         
         # 3. Pronóstico
         last_date = train_data.index.max()
-        future_index = pd.date_range(start=last_date, periods=forecast_periods + 1, closed='right')
+        future_index = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods)
         
         forecast_obj = model_fit.get_forecast(steps=forecast_periods)
         forecast_mean = forecast_obj.predicted_mean
