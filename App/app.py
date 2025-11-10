@@ -655,7 +655,7 @@ def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_ord
             enforce_invertibility=False
         )
         # Usamos 'low_memory=True' para evitar errores de RAM en Streamlit Cloud
-        model_fit = model.fit(disp=False, low_memory=True, method='bfgs') 
+        model_fit = model.fit(disp=False, low_memory=True, method='bfgs', maxiter=200, tol=1e-5) 
         
         # 3. Pronóstico
         last_date = train_data.index.max()
