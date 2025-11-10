@@ -6,3 +6,4 @@ plotly
 bcrypt
 scikit-learn
 psycopg2-binary
+statsmodels

@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import bcrypt
 from sklearn.ensemble import RandomForestRegressor 
 from sklearn.metrics import mean_absolute_error
+import statsmodels.api as sm
 
 # Conexion a Neon
 NEON_DATABASE_URL = "postgresql://neondb_owner:npg_lz1fJwWeEr7n@ep-aged-flower-aba6hlv1-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require" 
@@ -322,58 +323,38 @@ def graficos(df):
         available_cinemas = sorted(df_analysis['cinema_code'].unique())
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
-            df_features, forecast_results, future_dates, historical_mae, backtest_results, backtest_mae = run_sklearn_prediction(df, forecast_periods=forecast_days)
+            df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
 
-            df_historic = df_features.rename(columns={'ds': 'Fecha', 'y': 'Revenue'}).set_index('Fecha')['Revenue']
-            df_forecast = forecast_results.rename(columns={'prediction': 'Revenue'})['Revenue']
+            forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df)
 
-            df_plot = pd.concat([df_historic, df_forecast])
-            
-            fig = px.line(
-                df_plot.reset_index().rename(columns={'index': 'Fecha'}),
-                x='Fecha',
-                y='Revenue',
-                title=f'Revenue Histórico y Predicción ({forecast_days} días)'
-            )
-            start_date_str = future_dates.min().strftime('%Y-%m-%d')
-            fig.add_shape(
-                type='line',
-                xref='x', 
-                yref='paper', 
-                x0=start_date_str, 
-                y0=0, 
-                x1=start_date_str, 
-                y1=1, 
-                line=dict(
-                    color='red',
-                    width=2,
-                    dash='dash', 
-                )
-            )
-        
-            fig.add_vrect(
-                x0=start_date_str, 
-                x1=df_plot.index.max().strftime('%Y-%m-%d'), 
-                fillcolor="rgba(255, 0, 0, 0.1)",
-                layer="below",
-                line_width=0,
-                name="Zona de Predicción"
-            )
-            
-            st.plotly_chart(fig, width='stretch')
+            st.header("Análisis de Rendimiento del Modelo")
 
-            st.metric(
-                label="Error Absoluto Medio (MAE)",
-                value=f"€ {historical_mae:,.0f}"
-            )
+            col_rf, col_sarima = st.columns(2)
 
-            st.metric(
-                label="MAE de Backtesting (últimos 90 días)",
-                value=f"€ {backtest_mae:,.0f}"
-            )
+            with col_rf:
+                st.subheader("Random Forest (RF)")
+                st.metric(label="MAE Histórico (Entrenamiento)", value=f"{historical_mae_rf:,.0f}")
+                st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_rf:,.0f}", 
+                        delta=f"{(backtest_mae_rf - 227000):,.0f} más que el error base") # Usamos 227k como referencia base
 
-            if backtest_mae > historical_mae * 1.5:
-                st.warning("El error de Backtesting es significativamente mayor que el error de entrenamiento. ¡Cuidado con el sobreajuste!")
+            with col_sarima:
+                st.subheader("SARIMA (Estacionalidad 7)")
+                st.metric(label="MAE Histórico (Ajuste)", value=f"{mae_sarima:,.0f}")
+                st.markdown("---")
+                st.caption("SARIMA requiere un *backtesting* más complejo. El error de propagación no aplica aquí.")
+
+            if forecast_results_sarima is not None:
+                st.header("Pronóstico de Ventas (Comparación de Modelos)")
+
+                # 1. Unir resultados en un solo DataFrame
+                comparison_df = forecast_results_rf.rename(columns={'prediction': 'Random Forest'})
+                comparison_df['SARIMA'] = forecast_results_sarima['prediction']
+                comparison_df.index.name = 'Fecha'
+
+                # 2. Crear gráfico
+                st.line_chart(comparison_df)
+
+                st.caption("El modelo que predice un resultado más conservador o estable es a menudo el más fiable a largo plazo.")
         
         with all_tabs[4]:
             selected_cinema = st.selectbox(
@@ -651,6 +632,59 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
         
     # 6. RETORNO DE RESULTADOS
     return df_features, forecast_results, future_dates, historical_mae, backtest_results, backtest_mae
+
+@st.cache_data
+def run_sarima_prediction(df, forecast_periods=30, order=(1, 1, 1), seasonal_order=(0, 1, 1, 7)):
+    
+    # 1. Preparar la serie de tiempo
+    df_series = df.groupby('date')['total_sales'].sum().reset_index()
+    df_series.columns = ['ds', 'y']
+    df_series = df_series.set_index('ds')['y']
+    
+    # Datos de entrenamiento
+    train_data = df_series.copy()
+    
+    # 2. Ajustar el modelo SARIMA
+    try:
+        model = sm.tsa.statespace.SARIMAX(
+            train_data,
+            order=order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
+        # Usamos 'low_memory=True' para evitar errores de RAM en Streamlit Cloud
+        model_fit = model.fit(disp=False, low_memory=True) 
+        
+        # 3. Pronóstico
+        last_date = train_data.index.max()
+        future_index = pd.date_range(start=last_date, periods=forecast_periods + 1, closed='right')
+        
+        forecast_obj = model_fit.get_forecast(steps=forecast_periods)
+        forecast_mean = forecast_obj.predicted_mean
+        
+        # Crear DataFrame de resultados
+        forecast_results = pd.DataFrame(forecast_mean.values, index=future_index, columns=['prediction'])
+        
+        # 4. Cálculo de Error (MAE histórico - solo para comparación)
+        
+        # ⚠️ CORRECCIÓN: Definimos la ventana de calentamiento. 
+        # Esto elimina los primeros puntos que el modelo usa para iniciar la diferenciación.
+        WARMUP_PERIOD = 28 
+        
+        # Haremos predicciones dentro de la muestra (in-sample)
+        # Empezamos la predicción después del periodo de calentamiento.
+        pred_in_sample = model_fit.predict(start=train_data.index[WARMUP_PERIOD], end=train_data.index[-1])
+        
+        # Calculamos el MAE comparando la predicción con el valor real
+        mae_sarima = mean_absolute_error(train_data.iloc[WARMUP_PERIOD:], pred_in_sample)
+        
+        return forecast_results, mae_sarima, model_fit
+        
+    except Exception as e:
+        # st.error(f"Error al ajustar el modelo SARIMA: {e}") # Mejor comentarlo para Streamlit Cloud
+        st.error("Error al ajustar el modelo SARIMA. Revisa los logs.")
+        return None, None, None
 
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
