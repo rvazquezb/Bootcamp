@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import bcrypt
 from sklearn.ensemble import RandomForestRegressor 
 from sklearn.metrics import mean_absolute_error
+from sklearn.preprocessing import MinMaxScaler
 
 # Conexion a Neon
 NEON_DATABASE_URL = "postgresql://neondb_owner:npg_lz1fJwWeEr7n@ep-aged-flower-aba6hlv1-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require" 
@@ -552,18 +553,34 @@ def create_features(df, lag=14):
 def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     LAG_DAYS = 21 # Días de lag para las features
     
-    # 1. Crear features y limpiar NaNs (debido a los lags)
+    # La función create_features debe estar definida previamente
     df_features = create_features(df, lag=LAG_DAYS)
     
     TARGET = 'y'
     FEATURES = [col for col in df_features.columns if col not in ['ds', TARGET]]
+    LAG_FEATURES = [col for col in FEATURES if col.startswith('revenue_lag')]
     
-    # 2. División de Datos para Entrenamiento y Backtesting
-    train_size = len(df_features) - backtest_periods
+    # ----------------------------------------------------
+    # 1. ESCALADO DE DATOS (MinMaxScaler)
+    # ----------------------------------------------------
+    # Copia para trabajar sobre los datos y mantener el original limpio si es necesario
+    df_scaled = df_features.copy() 
+    
+    scaler_y = MinMaxScaler()
+    scaler_X_lags = MinMaxScaler()
+    
+    # 1a. Escalar la variable objetivo (y)
+    df_scaled[TARGET] = scaler_y.fit_transform(df_scaled[[TARGET]])
+    
+    # 1b. Escalar solo las features de lag
+    df_scaled[LAG_FEATURES] = scaler_X_lags.fit_transform(df_scaled[LAG_FEATURES])
+    
+    # 2. División de Datos (Usando los datos ESCALADOS)
+    train_size = len(df_scaled) - backtest_periods
     
     # Conjuntos de datos
-    df_train = df_features.iloc[:train_size].copy()
-    df_backtest_actuals = df_features.iloc[train_size:].copy()
+    df_train = df_scaled.iloc[:train_size].copy()
+    df_backtest_actuals = df_scaled.iloc[train_size:].copy() # 'y' aquí está escalada
     
     X_train = df_train[FEATURES]
     y_train = df_train[TARGET]
@@ -571,15 +588,15 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     # 3. Entrenamiento del Modelo (Ajustado para menos Overfitting)
     model = RandomForestRegressor(
         n_estimators=100, 
-        max_depth=10,        # Reducción de la complejidad
-        min_samples_leaf=5,  # Regularización adicional
+        max_depth=10,        
+        min_samples_leaf=5,  
         random_state=42
     )
     model.fit(X_train, y_train)
     
-    # MAE Histórico (entrenamiento/ajuste)
+    # MAE Histórico (entrenamiento/ajuste) - Inicialmente escalado
     y_pred_history = model.predict(X_train)
-    mae_history = mean_absolute_error(y_train, y_pred_history)
+    historical_mae_scaled = mean_absolute_error(y_train, y_pred_history)
     
     # ----------------------------------------------------
     # 4. BACKTESTING WALK-FORWARD (PRUEBA DE DIAGNÓSTICO)
@@ -589,7 +606,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
         index=df_backtest_actuals['ds'], 
         columns=['actual', 'prediction']
     )
-    backtest_results['actual'] = df_backtest_actuals['y'].values
+    backtest_results['actual'] = df_backtest_actuals['y'].values # Valores 'y' escalados
     
     # Tomar la última fila de entrenamiento como punto de partida para el bucle
     last_train_row = df_train.iloc[-1]
@@ -598,7 +615,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     # Bucle de predicción Walk-Forward
     for i, date in enumerate(df_backtest_actuals['ds']):
         
-        # 4a. Actualizar Features de Fecha (día de la semana, etc.)
+        # 4a. Actualizar Features de Fecha 
         current_input['dayofweek'] = date.dayofweek
         current_input['month'] = date.month
         current_input['dayofyear'] = date.dayofyear
@@ -606,56 +623,75 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
         
         # 4b. Predecir el siguiente valor
         X_pred = pd.DataFrame([current_input], columns=FEATURES)
-        next_revenue = model.predict(X_pred)[0]
+        next_revenue = model.predict(X_pred)[0] # Predicción escalada
         
         backtest_results.loc[date, 'prediction'] = next_revenue
         
-        # 4c. ACUMULACIÓN (Usando el VALOR REAL para evitar la propagación)
-        # Esto es la Prueba de Diagnóstico.
-        actual_revenue_t = backtest_results.loc[date, 'actual'] 
+        # 4c. ACUMULACIÓN (Usando el VALOR REAL ESCALADO para la prueba)
+        actual_revenue_t_scaled = backtest_results.loc[date, 'actual'] 
         
         for j in range(LAG_DAYS, 1, -1):
-            # Mover los lags: lag_2 se convierte en lag_3, etc.
             current_input[f'revenue_lag_{j}'] = current_input[f'revenue_lag_{j-1}']
             
-        # El Lag_1 para la siguiente iteración es el valor real de hoy
-        current_input['revenue_lag_1'] = actual_revenue_t
+        # El Lag_1 para la siguiente iteración es el valor real ESCALADO
+        current_input['revenue_lag_1'] = actual_revenue_t_scaled
         
-    # 4d. Cálculo de MAE del Backtesting
-    backtest_mae = mean_absolute_error(
+    # 4d. Cálculo de MAE del Backtesting (Escalado)
+    backtest_mae_scaled = mean_absolute_error(
         backtest_results['actual'].values, 
         backtest_results['prediction'].values
     )
     
     # ----------------------------------------------------
-    # 5. PRONÓSTICO FUTURO RECURSIVO (Walk-Forward)
+    # 5. DESESCALAR MAE y PREDICCIONES
+    # ----------------------------------------------------
+    
+    # Calcular el rango real (Max - Min) de la variable objetivo 'y'
+    y_range = scaler_y.data_max_[0] - scaler_y.data_min_[0]
+    
+    # 5a. Desescalar los MAE (MAE desescalado = MAE escalado * Rango)
+    backtest_mae = backtest_mae_scaled * y_range
+    historical_mae = historical_mae_scaled * y_range
+    
+    # 5b. Desescalar las Predicciones y Actuals para el usuario
+    backtest_results['actual'] = scaler_y.inverse_transform(backtest_results[['actual']])
+    backtest_results['prediction'] = scaler_y.inverse_transform(backtest_results[['prediction']])
+    
+    # ----------------------------------------------------
+    # 6. PRONÓSTICO FUTURO (Aplicar el escalado/desescalado aquí también)
     # ----------------------------------------------------
     
     last_date = df_features['ds'].max()
     future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods)
     forecast_results = pd.DataFrame(index=future_dates, columns=['prediction'])
     
-    # Tomar la última fila de df_features para empezar el pronóstico
-    last_row_full = df_features.iloc[-1]
-    current_forecast_input = last_row_full[FEATURES].to_dict()
+    # Tomar la última fila ESCALADA de df_scaled para empezar el pronóstico
+    last_row_full_scaled = df_scaled.iloc[-1]
+    current_forecast_input = last_row_full_scaled[FEATURES].to_dict()
     
     for date in future_dates:
+        # ... (Actualizar features de fecha, sin escalado) ...
         current_forecast_input['dayofweek'] = date.dayofweek
         current_forecast_input['month'] = date.month
         current_forecast_input['dayofyear'] = date.dayofyear
         current_forecast_input['is_weekend'] = 1 if date.dayofweek >= 5 else 0
         
+        # Predicción ESCALADA
         X_pred_forecast = pd.DataFrame([current_forecast_input], columns=FEATURES)
-        next_revenue_forecast = model.predict(X_pred_forecast)[0]
+        next_revenue_forecast_scaled = model.predict(X_pred_forecast)[0]
         
+        # Desescalar la predicción para el resultado final
+        next_revenue_forecast = scaler_y.inverse_transform([[next_revenue_forecast_scaled]])[0][0]
         forecast_results.loc[date, 'prediction'] = next_revenue_forecast
         
-        # PROPAGACIÓN REAL DEL ERROR para el Pronóstico Futuro
+        # PROPAGACIÓN REAL DEL ERROR (Usar el valor ESCALADO para el lag del siguiente ciclo)
         for i in range(LAG_DAYS, 1, -1):
             current_forecast_input[f'revenue_lag_{i}'] = current_forecast_input[f'revenue_lag_{i-1}']
-        current_forecast_input['revenue_lag_1'] = next_revenue_forecast
+        current_forecast_input['revenue_lag_1'] = next_revenue_forecast_scaled # <--- Usar el ESCALADO
         
-    return df_features, forecast_results, future_dates, mae_history, backtest_results, backtest_mae
+    # 7. RETORNO DE RESULTADOS
+    # Devolvemos el dataframe original sin escalar, aunque con los NaNs eliminados.
+    return df_features.iloc[LAG_DAYS:].copy(), forecast_results, future_dates, historical_mae, backtest_results, backtest_mae
 
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
