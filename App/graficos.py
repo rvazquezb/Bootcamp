@@ -247,14 +247,14 @@ def graficos(df):
 
             with col_rf:
                 st.subheader("Random Forest (RF)")
-                st.metric(label="MAE Histórico (Entrenamiento)", value=f"{historical_mae_rf:,.0f}")
+                st.metric(label="MAE", value=f"{historical_mae_rf:,.0f}")
                 st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_rf:,.0f}", 
-                        delta=f"{(backtest_mae_rf - 227000):,.0f} más que el error base") # Usamos 227k como referencia base
+                        delta=f"{(backtest_mae_rf - 227000):,.0f} más que el error base") 
 
             with col_sarima:
                 st.subheader("SARIMA (Estacionalidad 7)")
                 if sarima_succeeded:
-                    st.metric(label="MAE Histórico (Ajuste)", value=f"{mae_sarima:,.0f}")
+                    st.metric(label="MAE", value=f"{mae_sarima:,.0f}")
                     st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_sarima:,.0f}")
                 else:
                     st.error("No se pudo ajustar el modelo SARIMA. Revise la estacionalidad y los órdenes (p,d,q).")
@@ -268,8 +268,6 @@ def graficos(df):
 
                 # 2. Crear gráfico
                 st.line_chart(comparison_df)
-
-                st.caption("El modelo que predice un resultado más conservador o estable es a menudo el más fiable a largo plazo.")
         
         with all_tabs[4]:
             selected_cinema = st.selectbox(
