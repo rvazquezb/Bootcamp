@@ -635,7 +635,7 @@ def run_sklearn_prediction(df, forecast_periods=30, backtest_periods=90):
     return df_features, forecast_results, future_dates, historical_mae, backtest_results, backtest_mae
 
 @st.cache_data
-def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_order=(1, 1, 1, 7)):
+def run_sarima_prediction(df, forecast_periods=30, order=(0, 1, 1), seasonal_order=(0, 1, 1, 7)):
     
     # 1. Preparar la serie de tiempo
     df_series = df.groupby('date')['total_sales'].sum().reset_index()
@@ -643,7 +643,7 @@ def run_sarima_prediction(df, forecast_periods=30, order=(1, 0, 1), seasonal_ord
     df_series = df_series.set_index('ds')['y']
     
     # Datos de entrenamiento
-    train_data = df_series.copy()
+    train_data = df_series.asfreq('D', fill_value=0)
     
     # 2. Ajustar el modelo SARIMA
     try:
