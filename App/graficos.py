@@ -384,17 +384,19 @@ def graficos(df):
                     
                     # Mostrar la tabla de las 5 peores franjas
                     st.dataframe(
-                        top_savings_candidates[['day_of_week_es', 'time_slot', 'revenue_segment', 'revenue_percentage', 'sessions_count']]
+                        top_savings_candidates[['day_of_week_es', 'time_slot', 'revenue_segment', 'revenue_percentage', 'gasto_medio_empleados', 'sessions_count']]
                         .rename(columns={
                             'day_of_week_es': 'Día',
                             'time_slot': 'Franja Horaria',
                             'revenue_segment': 'Revenue Absoluto',
                             'revenue_percentage': '% Revenue Total',
+                            'gasto_medio_empleados': 'Gasto Medio Empleados',
                             'sessions_count': '# Sesiones'
                         })
                         .style.format({
                             'Revenue Absoluto': "€ {:,.0f}",
-                            '% Revenue Total': "{:.2f} %"
+                            '% Revenue Total': "{:.2f} %",
+                            'Gasto Medio Empleados': "€ {:,.0f}"
                         }),
                         width='stretch'
                     )
