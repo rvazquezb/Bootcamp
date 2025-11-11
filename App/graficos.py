@@ -314,8 +314,8 @@ def graficos(df):
 
                     st.subheader("💸 Gasto Fijo por Turno (8h) en Empleados por Franja")
                     fig_heatmap_gasto = px.imshow(
-                        df_pivot_gasto, # Usamos el pivot del gasto que calculamos antes
-                        color_continuous_scale='Blues', # Un color distinto para el gasto
+                        df_pivot_gasto, 
+                        color_continuous_scale='Blues', 
                         labels=dict(x="Día de la Semana", y="Franja Horaria", color="Gasto Fijo por Turno (€)"),
                         text_auto=True,
                         aspect="auto",
