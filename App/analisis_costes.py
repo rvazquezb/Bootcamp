@@ -25,23 +25,32 @@ def prepare_cost_analysis_df(df):
 
 def analyze_costs(df, cinema_id):
     
+    HOURS_PER_SESSION = 2
+
     # Filtrar por el cine seleccionado
     df_cinema = df[df['cinema_code'] == cinema_id].copy()
 
     # Calcular el Revenue total de ese cine
     total_revenue_cinema = df_cinema['total_sales'].sum()
     
+    df_cinema['coste_salarial_sesion'] = (
+        df_cinema['n_empleados'] * df_cinema['salario_hora'] * HOURS_PER_SESSION
+    )
+
     if total_revenue_cinema == 0:
         return pd.DataFrame(), 0 
         
     # Agrupar por Día de la Semana y Franja Horaria
     df_grouped = df_cinema.groupby(['day_of_week_es', 'time_slot']).agg(
         revenue_segment=('total_sales', 'sum'),
-        sessions_count=('date', 'count')
+        total_coste_salarial_segment=('coste_salarial_sesion', 'sum'),
+        sessions_count=('date', 'count'),
+        dias_con_sesiones=('date', 'nunique')
     ).reset_index()
     
     # Calcular %
     df_grouped['revenue_percentage'] = (df_grouped['revenue_segment'] / total_revenue_cinema) * 100
+    df_grouped['gasto_medio_empleados'] = (df_grouped['total_coste_salarial_segment'] / df_grouped['dias_con_sesiones'])
     
     # Ordenar los días para visualización
     day_order_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']

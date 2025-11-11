@@ -289,22 +289,40 @@ def graficos(df):
                     
                     st.subheader("Revenue Total por Franja Horaria y Día de la Semana")
                     
-                    fig_heatmap = px.imshow(
+                    fig_heatmap_revenue = px.imshow(
                         df_impact.pivot(index='time_slot', columns='day_of_week_es', values='revenue_segment').fillna(0),
                         color_continuous_scale='YlOrRd', 
                         labels=dict(x="Día de la Semana", y="Franja Horaria", color="Revenue (€)"),
                         text_auto=True,
-                        aspect="auto"
+                        aspect="auto",
+                        title="Ingresos Históricos por Franja"
                     )
-                    fig_heatmap.update_layout(
+                    df_pivot_gasto = df_impact.pivot(index='time_slot', columns='day_of_week_es', values='gasto_medio_empleados').fillna(0)
+                    fig_heatmap_revenue.update_traces(
+                        customdata=df_pivot_gasto.round(0).values,
+                        hovertemplate="<b>%{y} - %{x}</b><br>Revenue: €%{z:,.0f}<br>Gasto Medio Empleados: €%{customdata:,.0f}<extra></extra>"
+                    )
+                    fig_heatmap_revenue.update_layout(
                         xaxis_title=None, 
                         yaxis_title=None,
                         height=400
                     )
                     
-                    st.plotly_chart(fig_heatmap, width='stretch')
+                    st.plotly_chart(fig_heatmap_revenue, width='stretch')
                     
                     st.markdown("---")
+
+                    st.subheader("💸 Gasto Medio Diario en Empleados por Franja")
+                    fig_heatmap_gasto = px.imshow(
+                        df_pivot_gasto, # Usamos el pivot del gasto que calculamos antes
+                        color_continuous_scale='Blues', # Un color distinto para el gasto
+                        labels=dict(x="Día de la Semana", y="Franja Horaria", color="Gasto Medio (€)"),
+                        text_auto=True,
+                        aspect="auto",
+                        title="Gasto Salarial Promedio por Franja y Día"
+                    )
+                    fig_heatmap_gasto.update_layout(xaxis_title=None, yaxis_title=None, height=400)
+                    st.plotly_chart(fig_heatmap_gasto, width='stretch')
 
                     st.subheader("Tabla de Oportunidades de Ahorro")
                     st.markdown("Estas franjas tienen el **menor impacto en el Revenue**. Son las candidatas principales al cierre.")
@@ -340,17 +358,19 @@ def graficos(df):
                         
                         # Mostrar la tabla con las candidatas que cumplen el umbral
                         st.dataframe(
-                            df_critical_candidates[['day_of_week_es', 'time_slot', 'revenue_segment', 'revenue_percentage', 'sessions_count']]
+                            df_critical_candidates[['day_of_week_es', 'time_slot', 'revenue_segment', 'revenue_percentage', 'gasto_medio_empleados', 'sessions_count']]
                             .rename(columns={
                                 'day_of_week_es': 'Día',
                                 'time_slot': 'Franja Horaria',
                                 'revenue_segment': 'Revenue Absoluto',
                                 'revenue_percentage': '% Revenue Total',
+                                'gasto_medio_empleados': 'Gasto Medio Empleados',
                                 'sessions_count': '# Sesiones'
                             })
                             .style.format({
                                 'Revenue Absoluto': "€ {:,.0f}",
-                                '% Revenue Total': "{:.2f} %"
+                                '% Revenue Total': "{:.2f} %",
+                                'Gasto Medio Empleados': "€ {:,.0f}"
                             }),
                             width='stretch'
                         )
