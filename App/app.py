@@ -51,7 +51,7 @@ def authenticate_user(username, password):
         return False, None
 
 # Función para cargar los datos
-@st.cache_data
+# @st.cache_data
 def load_data():
     try:
         engine = create_engine(NEON_DATABASE_URL)
