@@ -74,23 +74,27 @@ def analyze_costs(df, cinema_id):
     # Dado que el 'n_empleados' y 'salario_hora' varían solo por 'time_slot' (nocturno)
     # y 'cinema_code', el coste fijo por turno es constante para esa combinación.
 
-    gasto_por_franja = df_cinema.groupby('time_slot')['gasto_turno_unico'].first().reset_index()
-    gasto_por_franja = gasto_por_franja.rename(columns={'gasto_turno_unico': 'gasto_diario_franja'})
+    gasto_por_franja_unica = df_cinema.groupby('time_slot')['gasto_turno_unico'].first().reset_index()
+    gasto_por_franja_unica = gasto_por_franja_unica.rename(columns={'gasto_turno_unico': 'gasto_fijo_diario'})
     
-    # Unimos el gasto fijo diario por franja al DF agrupado
-    df_grouped = pd.merge(df_grouped, gasto_por_franja, on='time_slot', how='left')
+    # b. Unimos el gasto fijo diario al DF agrupado para poder multiplicarlo
+    df_grouped = pd.merge(df_grouped, gasto_por_franja_unica, on='time_slot', how='left')
 
-    # El Gasto Medio Diario en Empleados ES el Gasto Diario Fijo de la Franja.
-    df_grouped['gasto_medio_empleados'] = df_grouped['gasto_diario_franja']
+    # c. Calculamos el GASTO TOTAL ACUMULADO: Gasto Fijo Diario * Días de Operación
+    df_grouped['gasto_total_empleados'] = (
+        df_grouped['gasto_fijo_diario'] * df_grouped['dias_con_sesiones']
+    )
+    
+    # d. Renombramos la columna para que coincida con el uso en el frontend
+    df_grouped['gasto_medio_empleados'] = df_grouped['gasto_total_empleados'] # 👈 SE MANTIENE EL NOMBRE DE COLUMNA DEL FRONTEND
     
     # 5. Calcular % de Revenue
     df_grouped['revenue_percentage'] = (df_grouped['revenue_segment'] / total_revenue_cinema) * 100
     
-    # 6. Ordenar los días para visualización
+    # 6. Ordenar los días y limpiar
     day_order_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
     df_grouped['day_of_week_es'] = pd.Categorical(df_grouped['day_of_week_es'], categories=day_order_es, ordered=True)
     df_grouped = df_grouped.sort_values(by='day_of_week_es')
     
-    # 7. Limpieza y Retorno
-    df_grouped = df_grouped.drop(columns=['gasto_diario_franja']) # Ya no necesitamos la columna intermedia
+    df_grouped = df_grouped.drop(columns=['gasto_fijo_diario', 'gasto_total_empleados'])
     return df_grouped, total_revenue_cinema
