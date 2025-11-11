@@ -25,36 +25,72 @@ def prepare_cost_analysis_df(df):
 
 def analyze_costs(df, cinema_id):
     
-    HOURS_PER_SESSION = 2
-
-    # Filtrar por el cine seleccionado
+    # 📌 PARÁMETRO DE COSTE FIJO POR TURNO
+    # El gasto se calcula por el turno completo de 8 horas, independientemente
+    # del número de sesiones que caigan dentro de esa franja.
+    HOURS_PER_SHIFT = 8 
+    
+    # 1. Filtrar por el cine seleccionado
     df_cinema = df[df['cinema_code'] == cinema_id].copy()
 
-    # Calcular el Revenue total de ese cine
+    # 2. CÁLCULO DEL GASTO SALARIAL POR TURNO (NUEVA LÓGICA)
+    # Asumimos que la asignación de empleados (n_empleados) cubre el turno completo.
+    # Coste Fijo del Turno = Empleados * Salario_Hora * 8 Horas
+    df_cinema['gasto_turno_fijo'] = (
+        df_cinema['n_empleados'] * df_cinema['salario_hora'] * HOURS_PER_SHIFT
+    )
+    
     total_revenue_cinema = df_cinema['total_sales'].sum()
     
-    df_cinema['coste_salarial_sesion'] = (
-        df_cinema['n_empleados'] * df_cinema['salario_hora'] * HOURS_PER_SESSION
-    )
-
     if total_revenue_cinema == 0:
         return pd.DataFrame(), 0 
         
-    # Agrupar por Día de la Semana y Franja Horaria
+    # 3. Agrupar para obtener los valores agregados de Revenue, Coste y Conteo
+    # La clave es agrupar por Día y Franja, pero necesitamos obtener el 'gasto_turno_fijo'
+    # de manera única, ya que se repite para cada sesión dentro de la misma franja.
+    
     df_grouped = df_cinema.groupby(['day_of_week_es', 'time_slot']).agg(
         revenue_segment=('total_sales', 'sum'),
-        total_coste_salarial_segment=('coste_salarial_sesion', 'sum'),
+        # La suma total de 'gasto_turno_fijo' está inflada, ya que cuenta el coste por CADA SESIÓN.
+        # En su lugar, agruparemos de manera más granular para contar días únicos.
         sessions_count=('date', 'count'),
-        dias_con_sesiones=('date', 'nunique')
+        dias_con_sesiones=('date', 'nunique') # Cuenta cuántos días hubo actividad en esta franja
     ).reset_index()
+
+    # 4. CALCULAR EL COSTE PROMEDIO (Este paso se vuelve más simple)
+    # Ahora que tenemos 'dias_con_sesiones', necesitamos el Gasto Diario Real.
     
-    # Calcular %
+    # Paso Intermedio: Calcular el Gasto por Franja en un solo día (Valor único)
+    # Tomamos el gasto de la primera fila de esa franja en el DF filtrado, 
+    # ya que debería ser el mismo para todas las sesiones de ese día y franja.
+    
+    # Primero, calculamos el gasto que corresponde a una sola instancia de esa franja
+    # (asumiendo que n_empleados y salario_hora son constantes por cine, que es su lógica)
+    
+    # Gasto de un solo turno (fijo por cine y franja - el nocturno tiene plus)
+    df_cinema['gasto_turno_unico'] = df_cinema['n_empleados'] * df_cinema['salario_hora'] * HOURS_PER_SHIFT
+    
+    # Extraemos el valor único del Gasto Fijo por Turno para el cine seleccionado.
+    # Dado que el 'n_empleados' y 'salario_hora' varían solo por 'time_slot' (nocturno)
+    # y 'cinema_code', el coste fijo por turno es constante para esa combinación.
+
+    gasto_por_franja = df_cinema.groupby('time_slot')['gasto_turno_unico'].first().reset_index()
+    gasto_por_franja = gasto_por_franja.rename(columns={'gasto_turno_unico': 'gasto_diario_franja'})
+    
+    # Unimos el gasto fijo diario por franja al DF agrupado
+    df_grouped = pd.merge(df_grouped, gasto_por_franja, on='time_slot', how='left')
+
+    # El Gasto Medio Diario en Empleados ES el Gasto Diario Fijo de la Franja.
+    df_grouped['gasto_medio_empleados'] = df_grouped['gasto_diario_franja']
+    
+    # 5. Calcular % de Revenue
     df_grouped['revenue_percentage'] = (df_grouped['revenue_segment'] / total_revenue_cinema) * 100
-    df_grouped['gasto_medio_empleados'] = (df_grouped['total_coste_salarial_segment'] / df_grouped['dias_con_sesiones'])
     
-    # Ordenar los días para visualización
+    # 6. Ordenar los días para visualización
     day_order_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
     df_grouped['day_of_week_es'] = pd.Categorical(df_grouped['day_of_week_es'], categories=day_order_es, ordered=True)
     df_grouped = df_grouped.sort_values(by='day_of_week_es')
     
+    # 7. Limpieza y Retorno
+    df_grouped = df_grouped.drop(columns=['gasto_diario_franja']) # Ya no necesitamos la columna intermedia
     return df_grouped, total_revenue_cinema

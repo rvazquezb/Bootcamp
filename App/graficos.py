@@ -300,7 +300,7 @@ def graficos(df):
                     df_pivot_gasto = df_impact.pivot(index='time_slot', columns='day_of_week_es', values='gasto_medio_empleados').fillna(0)
                     fig_heatmap_revenue.update_traces(
                         customdata=df_pivot_gasto.round(0).values,
-                        hovertemplate="<b>%{y} - %{x}</b><br>Revenue: €%{z:,.0f}<br>Gasto Medio Empleados: €%{customdata:,.0f}<extra></extra>"
+                        hovertemplate="<b>%{y} - %{x}</b><br>Revenue: €%{z:,.0f}<br>**Gasto Fijo por Turno:** €%{customdata:,.0f}<extra></extra>"
                     )
                     fig_heatmap_revenue.update_layout(
                         xaxis_title=None, 
@@ -312,11 +312,11 @@ def graficos(df):
                     
                     st.markdown("---")
 
-                    st.subheader("💸 Gasto Medio Diario en Empleados por Franja")
+                    st.subheader("💸 Gasto Fijo por Turno (8h) en Empleados por Franja")
                     fig_heatmap_gasto = px.imshow(
                         df_pivot_gasto, # Usamos el pivot del gasto que calculamos antes
                         color_continuous_scale='Blues', # Un color distinto para el gasto
-                        labels=dict(x="Día de la Semana", y="Franja Horaria", color="Gasto Medio (€)"),
+                        labels=dict(x="Día de la Semana", y="Franja Horaria", color="Gasto Fijo por Turno (€)"),
                         text_auto=True,
                         aspect="auto",
                         title="Gasto Salarial Promedio por Franja y Día"
