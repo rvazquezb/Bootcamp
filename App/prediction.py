@@ -222,6 +222,7 @@ def sarima_backtest(series, order, seasonal_order, backtest_periods=90):
 
     return aligned, mae
 
+@st.cache_data
 def prepare_ts_data(df, cinema_id):
     """Filtra y agrega los datos al nivel de serie de tiempo diaria para el cine."""
     
@@ -240,6 +241,32 @@ def prepare_ts_data(df, cinema_id):
     
     return daily_sales['total_sales']
 
+@st.cache_resource # 👈 Usamos st.cache_resource para objetos de modelos
+def train_sarima_model(series_ts, cut_off_date, order, seasonal_order):
+    """Entrena el modelo SARIMA hasta la fecha de corte."""
+    
+    series_ts.index = pd.to_datetime(series_ts.index)
+    
+    # AISLAR LOS DATOS DE ENTRENAMIENTO
+    train_data = series_ts[series_ts.index.date <= cut_off_date].copy()
+    
+    if len(train_data) < 30:
+        return None, "Datos insuficientes para SARIMA (mínimo 30 días)."
+
+    try:
+        model = SARIMAX(
+            train_data,
+            order=order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
+        # El entrenamiento (fit) es lo que lleva tiempo
+        results = model.fit(disp=False) 
+        return results, None
+    except Exception as e:
+        return None, f"Error al ajustar SARIMA: {e}"
+
 def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     """
     Entrena el modelo SARIMAX con datos hasta la fecha de corte y predice el día siguiente.
@@ -249,31 +276,17 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
         cut_off_date (datetime.date): Fecha límite para usar como datos de entrenamiento.
     """
     
-    series.index = pd.to_datetime(series.index)
+    results, error_msg = train_sarima_model(
+        series, cut_off_date, (1, 1, 1), (1, 1, 0, 7)
+    )
     
-    # 1. AISLAR LOS DATOS DE ENTRENAMIENTO
-    train_data = series[series.index.date <= cut_off_date].copy()
-    
-    if len(train_data) < 30: # SARIMA necesita más datos que LSTM para la estacionalidad
-        return "Datos insuficientes para SARIMA (mínimo 30 días).", None
-
-    # 2. CONSTRUCCIÓN Y ENTRENAMIENTO del modelo SARIMAX
-    try:
-        model = SARIMAX(
-            train_data,
-            order=(1, 1, 1),
-            seasonal_order=(1, 1, 0, 7),
-            enforce_stationarity=False,
-            enforce_invertibility=False
-        )
-        results = model.fit(disp=False)
-    except Exception as e:
-        return f"Error al ajustar SARIMA: {e}", None
+    if results is None:
+        return error_msg, None
 
     # 3. CÁLCULO DEL UMBRAL DE ERROR HISTÓRICO
     # El umbral se basa en el error del modelo sobre el conjunto de entrenamiento.
     train_predict = results.fittedvalues.iloc[look_back:] # Ignorar los primeros días
-    Y_actual = train_data.iloc[look_back:]
+    Y_actual = results.train_data.iloc[look_back:]
     
     # Error de Predicción (Residual)
     prediction_error = np.abs(train_predict - Y_actual)
