@@ -269,6 +269,7 @@ def graficos(df):
                 st.line_chart(comparison_df)
 
             st.markdown("---")
+            st.header("🕵️ Detección de Anomalías (Análisis SARIMA)")
             st.markdown("Utiliza el modelo LSTM para predecir las ventas del día siguiente basándose en el historial. El umbral de anomalía se basa en el 95º percentil del error histórico del modelo.")
 
             # 1. Selección del Cine a Analizar
