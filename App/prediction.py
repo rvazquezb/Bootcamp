@@ -263,9 +263,9 @@ def train_sarima_model(series_ts, cut_off_date, order, seasonal_order):
         )
         # El entrenamiento (fit) es lo que lleva tiempo
         results = model.fit(disp=False) 
-        return results, None
+        return results, train_data, None
     except Exception as e:
-        return None, f"Error al ajustar SARIMA: {e}"
+        return None, None, f"Error al ajustar SARIMA: {e}"
 
 def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     """
@@ -276,7 +276,7 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
         cut_off_date (datetime.date): Fecha límite para usar como datos de entrenamiento.
     """
     
-    results, error_msg = train_sarima_model(
+    results, train_data, error_msg = train_sarima_model(
         series, cut_off_date, (1, 1, 1), (1, 1, 0, 7)
     )
     
@@ -286,7 +286,7 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     # 3. CÁLCULO DEL UMBRAL DE ERROR HISTÓRICO
     # El umbral se basa en el error del modelo sobre el conjunto de entrenamiento.
     train_predict = results.fittedvalues.iloc[look_back:] # Ignorar los primeros días
-    Y_actual = results.train_data.iloc[look_back:]
+    Y_actual = train_data.iloc[look_back:]
     
     # Error de Predicción (Residual)
     prediction_error = np.abs(train_predict - Y_actual)
