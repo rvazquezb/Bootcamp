@@ -4,6 +4,8 @@ import statsmodels.api as sm
 import numpy as np
 import streamlit as st
 import pandas as pd
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.seasonal import STL
 
 def create_features(df, lag=21):
 
@@ -219,3 +221,102 @@ def sarima_backtest(series, order, seasonal_order, backtest_periods=90):
     mae = mean_absolute_error(aligned['actual'].dropna(), aligned['predicted'].dropna())
 
     return aligned, mae
+
+def prepare_ts_data(df, cinema_id):
+    """Filtra y agrega los datos al nivel de serie de tiempo diaria para el cine."""
+    
+    # 1. Filtrar por el cine
+    df_ts = df[df['cinema_code'] == cinema_id].copy()
+    
+    # 2. Agregación diaria (SUMA de ventas totales)
+    # Asumo que 'date' es la columna de fecha (datetime)
+    daily_sales = df_ts.groupby(df_ts['date'].dt.date)['total_sales'].sum().reset_index()
+    daily_sales['date'] = pd.to_datetime(daily_sales['date'])
+    daily_sales = daily_sales.set_index('date')
+    
+    # 3. Rellenar fechas faltantes con 0 (manejo de días de cierre)
+    idx = pd.date_range(daily_sales.index.min(), daily_sales.index.max())
+    daily_sales = daily_sales.reindex(idx, fill_value=0)
+    
+    return daily_sales['total_sales']
+
+def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
+    """
+    Entrena el modelo SARIMAX con datos hasta la fecha de corte y predice el día siguiente.
+    
+    Args:
+        series (pd.Series): Serie temporal de ventas diarias.
+        cut_off_date (datetime.date): Fecha límite para usar como datos de entrenamiento.
+    """
+    
+    series.index = pd.to_datetime(series.index)
+    
+    # 1. AISLAR LOS DATOS DE ENTRENAMIENTO
+    train_data = series[series.index.date <= cut_off_date].copy()
+    
+    if len(train_data) < 30: # SARIMA necesita más datos que LSTM para la estacionalidad
+        return "Datos insuficientes para SARIMA (mínimo 30 días).", None
+
+    # 2. CONSTRUCCIÓN Y ENTRENAMIENTO del modelo SARIMAX
+    try:
+        model = SARIMAX(
+            train_data,
+            order=(1, 1, 1),
+            seasonal_order=(1, 1, 0, 7),
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
+        results = model.fit(disp=False)
+    except Exception as e:
+        return f"Error al ajustar SARIMA: {e}", None
+
+    # 3. CÁLCULO DEL UMBRAL DE ERROR HISTÓRICO
+    # El umbral se basa en el error del modelo sobre el conjunto de entrenamiento.
+    train_predict = results.fittedvalues.iloc[look_back:] # Ignorar los primeros días
+    Y_actual = train_data.iloc[look_back:]
+    
+    # Error de Predicción (Residual)
+    prediction_error = np.abs(train_predict - Y_actual)
+    
+    # Definir el umbral de anomalía (Percentil 95 del error histórico)
+    error_threshold = np.percentile(prediction_error, 95) 
+
+    # 4. PREDICCIÓN DEL DÍA SIGUIENTE
+    next_day_dt = cut_off_date + pd.Timedelta(days=1)
+    
+    # Predecir un solo paso (el día siguiente)
+    forecast = results.predict(start=next_day_dt, end=next_day_dt)
+    predicted_sales = forecast.iloc[0]
+    
+    # 5. EVALUACIÓN DE ANOMALÍA (Si el dato del día siguiente existe)
+    next_day_date = next_day_dt.date()
+    
+    report = {
+        "prediction_date": next_day_date.strftime("%Y-%m-%d"),
+        "data_cutoff": cut_off_date.strftime("%Y-%m-%d"),
+        "predicted_sales": round(predicted_sales, 2),
+        "anomaly_threshold": round(error_threshold, 2),
+    }
+
+    try:
+        # Intentar obtener el valor real del día siguiente
+        actual_next_day_sales = series.loc[series.index.date == next_day_date].iloc[0]
+        
+        # Evaluar si la desviación es una anomalía
+        deviation = np.abs(actual_next_day_sales - predicted_sales)
+        is_anomaly = deviation > error_threshold
+        
+        report.update({
+            "actual_sales": round(actual_next_day_sales, 2),
+            "deviation_from_prediction": round(deviation, 2),
+            "is_anomaly": is_anomaly
+        })
+        
+    except IndexError:
+        report.update({
+            "actual_sales": "N/A (Dato futuro)",
+            "deviation_from_prediction": "N/A",
+            "is_anomaly": "Pendiente de dato real"
+        })
+        
+    return report, results

@@ -1,9 +1,10 @@
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from prediction import run_sklearn_prediction, run_sarima_prediction, sarima_backtest
+from prediction import predict_next_day_anomaly_sarima, prepare_ts_data, run_sklearn_prediction, run_sarima_prediction, sarima_backtest
 from analisis_costes import prepare_cost_analysis_df, analyze_costs
 
 def kpis(df):
@@ -267,6 +268,74 @@ def graficos(df):
                 # 2. Crear gráfico
                 st.line_chart(comparison_df)
 
+            st.markdown("---")
+            st.markdown("Utiliza el modelo LSTM para predecir las ventas del día siguiente basándose en el historial. El umbral de anomalía se basa en el 95º percentil del error histórico del modelo.")
+
+            # 1. Selección del Cine a Analizar
+            selected_cinema_anomaly = st.selectbox(
+                "Seleccione el Cine para el análisis de Anomalías:",
+                options=available_cinemas, # Usa la misma lista de cines que antes
+                index=0
+            )
+
+            # 2. Preparar la Serie Temporal
+            series_ts = prepare_ts_data(df, selected_cinema_anomaly)
+
+            # 3. Widget para seleccionar el día de CORTE
+            max_date_available = series_ts.index.max().date()
+            min_date_available = series_ts.index.min().date()
+
+            # Asegurar que el día de corte permita el lookback (ANOMALY_WINDOW)
+            if (max_date_available - min_date_available).days < 7:
+                st.warning(f"Datos insuficientes para el lookback de {7} días.")
+                st.stop()
+
+            selected_cutoff_date = st.date_input(
+                "Seleccione el último día de datos a USAR (Cut-off Date):",
+                value=max_date_available,
+                min_value=min_date_available + datetime.timedelta(days=7), # Mínimo día para el lookback
+                max_value=max_date_available
+            )
+            selected_cutoff_date_dt = pd.to_datetime(selected_cutoff_date).date()
+
+            if st.button(f"Evaluar Anomalía para el día: {selected_cutoff_date_dt + datetime.timedelta(days=1)}", use_container_width=True):
+    
+                with st.spinner(f"Ajustando modelo SARIMA con datos hasta {selected_cutoff_date_dt}..."):
+                    
+                    report, _ = predict_next_day_anomaly_sarima( # 👈 ¡Cambio aquí!
+                        series=series_ts, 
+                        cut_off_date=selected_cutoff_date_dt
+                    )
+                
+                st.markdown("---")
+
+                # 5. Mostrar Resultados del Reporte
+                if isinstance(report, dict):
+                    
+                    # Mostrar el resultado principal (PREDICCIÓN)
+                    st.metric(
+                        label=f"Ventas Predichas para {report['prediction_date']}",
+                        value=f"€ {report['predicted_sales']:,.0f}",
+                        delta=f"Umbral de Anomalía: € {report['anomaly_threshold']:,.0f}"
+                    )
+                    
+                    # Mostrar el resultado de la Detección
+                    if report['is_anomaly'] is True:
+                        st.error(f"🚨 ¡ANOMALÍA DETECTADA! La desviación real ({report['deviation_from_prediction']:,.0f}€) superó el umbral.", icon="⚠️")
+                        st.metric(
+                            label="Ventas Reales (Día de Predicción)",
+                            value=f"€ {report['actual_sales']:,.0f}"
+                        )
+                    elif report['actual_sales'] == "N/A (Dato futuro)":
+                        st.info("Predicción generada. Necesitará el dato real de mañana para la evaluación de anomalía.", icon="⏳")
+                    else:
+                        st.success(f"✅ Venta Real ({report['actual_sales']:,.0f}€) dentro del rango esperado.", icon="👍")
+
+                    # st.json(report) # Opcional: para mostrar el detalle completo de la evaluación
+                    
+                else:
+                    st.error(report)
+                        
         with all_tabs[4]:
             selected_cinema = st.selectbox(
                 "Seleccione el Cine para analizar:",
