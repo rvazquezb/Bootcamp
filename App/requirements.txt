@@ -8,5 +8,4 @@ scikit-learn
 psycopg2-binary
 statsmodels
 tensorflow
-keras
 datetime
