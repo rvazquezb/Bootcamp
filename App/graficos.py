@@ -67,8 +67,6 @@ def kpis(df):
         
         progreso_porcentaje = (REVENUE_ACTUAL / TARGET_REVENUE) * 100
         progreso_porcentaje = round(progreso_porcentaje, 1) 
-        
-        valor_indicador = min(REVENUE_ACTUAL, TARGET_REVENUE)
     
         fig_gauge = go.Figure(go.Indicator(
             mode = "gauge+number+delta",
@@ -271,7 +269,7 @@ def graficos(df):
                 st.line_chart(comparison_df)
 
             st.markdown("---")
-
+            st.subheader("Prueba")
             ANOMALY_WINDOW = 7
             ANOMALY_THRESHOLD_STL = 3
 
