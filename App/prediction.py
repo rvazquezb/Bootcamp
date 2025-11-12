@@ -289,7 +289,12 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     predicted_sales = forecast.iloc[0]
     
     # 5. EVALUACIÓN DE ANOMALÍA (Si el dato del día siguiente existe)
-    next_day_date = next_day_dt.date()
+    if hasattr(next_day_dt, 'date'):
+        # Si es un Timestamp o datetime.datetime, usa .date()
+        next_day_date = next_day_dt.date()
+    else:
+        # Ya es un objeto date, no hace falta el método .date()
+        next_day_date = next_day_dt
     
     report = {
         "prediction_date": next_day_date.strftime("%Y-%m-%d"),
