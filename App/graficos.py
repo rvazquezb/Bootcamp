@@ -138,6 +138,7 @@ def kpis(df):
 def graficos(df):
     st.subheader("Análisis Detallado")
     user_role = st.session_state['user_role']
+    available_cinemas = []
     tab_titles = ["Matriz de Cines", "Análisis de Precios", "Tendencia Semanal"]
     if 'Analista' in user_role:
         tab_titles.append("Predicción de Revenue")
@@ -339,7 +340,7 @@ def graficos(df):
             selected_cinema = st.selectbox(
                 "Seleccione el Cine para analizar:",
                 options=available_cinemas,
-                index=0
+                index=0 if available_cinemas else None
             )
 
             if selected_cinema:
