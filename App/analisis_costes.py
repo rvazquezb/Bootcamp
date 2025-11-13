@@ -1,4 +1,5 @@
 import pandas as pd
+import streamlit as st
 
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
@@ -9,7 +10,7 @@ def map_show_time_to_slot(show_time):
         return '41 - 60 (Noche)'
     else:
         return 'Otro'
-
+@st.cache_data
 def prepare_cost_analysis_df(df):
     df_analysis = df.copy()
     df_analysis['time_slot'] = df_analysis['show_time'].apply(map_show_time_to_slot)
