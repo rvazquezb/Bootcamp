@@ -248,8 +248,7 @@ def graficos(df):
             with col_rf:
                 st.subheader("Random Forest (RF)")
                 st.metric(label="MAE", value=f"{historical_mae_rf:,.0f}")
-                st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_rf:,.0f}", 
-                        delta=f"{(backtest_mae_rf - 227000):,.0f} más que el error base") 
+                st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_rf:,.0f}") 
 
             with col_sarima:
                 st.subheader("SARIMA (Estacionalidad 7)")
@@ -273,67 +272,86 @@ def graficos(df):
             st.header("🕵️ Detección de Anomalías (Análisis SARIMA)")
             st.markdown("Utiliza el modelo SARIMA para predecir las ventas del día siguiente basándose en el historial. El umbral de anomalía se basa en el 95º percentil del error histórico del modelo.")
             
-            # 1. Selección del Cine a Analizar
-            selected_cinema_anomaly = st.selectbox(
-                "Seleccione el Cine para el análisis de Anomalías:",
-                options=available_cinemas, # Usa la misma lista de cines que antes
-                index=0
+            analysis_mode = st.radio(
+                "Seleccione el alcance del análisis:",
+                options=["Ventas Totales (Global)", "Por Cine (Específico)"],
+                index=0, 
+                horizontal=True
             )
-            
-            # 2. Preparar la Serie Temporal
-            series_ts = prepare_ts_data(df, selected_cinema_anomaly)
 
-            # 3. Widget para seleccionar el día de CORTE
-            max_date_available = series_ts.index.max().date()
-            min_date_available = series_ts.index.min().date()
-
-            # Asegurar que el día de corte permita el lookback (ANOMALY_WINDOW)
-            if (max_date_available - min_date_available).days < 7:
-                st.warning(f"Datos insuficientes para el lookback de {7} días.")
-            else:
-                selected_cutoff_date = st.date_input(
-                    "Seleccione el último día de datos a USAR (Cut-off Date):",
-                    value=max_date_available,
-                    min_value=min_date_available + datetime.timedelta(days=7), # Mínimo día para el lookback
-                    max_value=max_date_available
+            if analysis_mode == "Por Cine (Específico)":
+                # 2a. Selección del Cine a Analizar (Solo se muestra en modo 'Por Cine')
+                selected_cinema_anomaly = st.selectbox(
+                    "Seleccione el Cine para el análisis de Anomalías:",
+                    options=available_cinemas, 
+                    index=0
                 )
-                selected_cutoff_date_dt = pd.to_datetime(selected_cutoff_date).date()
+                
+                # 2b. Preparar la Serie Temporal del Cine
+                series_to_analyze = prepare_ts_data(df, selected_cinema_anomaly)
+                st.subheader(f"Análisis Específico: {selected_cinema_anomaly}")
 
-                if st.button(f"Evaluar Anomalía para el día: {selected_cutoff_date_dt + datetime.timedelta(days=1)}", width='stretch'):
-        
-                    with st.spinner(f"Ajustando modelo SARIMA con datos hasta {selected_cutoff_date_dt}..."):
-                        
-                        report, _ = predict_next_day_anomaly_sarima( # 👈 ¡Cambio aquí!
-                            series=series_ts, 
-                            cut_off_date=selected_cutoff_date_dt
-                        )
+            else: # analysis_mode == "Ventas Totales (Global)"
+                # 2a. La serie total ya está calculada como df_series
+                series_to_analyze = df_series
+                selected_cinema_anomaly = "TOTALES" # Variable de ayuda para las keys de Streamlit
+                st.subheader("Análisis Global: Ventas Totales")
+
+            if series_to_analyze.empty or len(series_to_analyze) < 7:
+                st.warning("Datos insuficientes para realizar un análisis SARIMA.")
+            else:
+                # 3. Widget para seleccionar el día de CORTE
+                max_date_available = series_to_analyze.index.max().date()
+                min_date_available = series_to_analyze.index.min().date()
+
+                # Asegurar que el día de corte permita el lookback (ANOMALY_WINDOW)
+                if (max_date_available - min_date_available).days < 7:
+                    st.warning(f"Datos insuficientes para el lookback de {7} días.")
+                else:
+                    selected_cutoff_date = st.date_input(
+                        "Seleccione el último día de datos a USAR (Cut-off Date):",
+                        value=max_date_available,
+                        min_value=min_date_available + datetime.timedelta(days=7),
+                        max_value=max_date_available
+                    )
                     
-                    st.markdown("---")
-                    
-                    # 5. Mostrar Resultados del Reporte
-                    if isinstance(report, dict):
-                        
-                        # Mostrar el resultado principal (PREDICCIÓN)
-                        st.metric(
-                            label=f"Ventas Predichas para {report['prediction_date']}",
-                            value=f"€ {report['predicted_sales']:,.0f}",
-                            delta=f"Umbral de Anomalía: € {report['anomaly_threshold']:,.0f}"
-                        )
-                        
-                        # Mostrar el resultado de la Detección
-                        if report['is_anomaly'] is True:
-                            st.error(f"🚨 ¡ANOMALÍA DETECTADA! La desviación real ({report['deviation_from_prediction']:,.0f}€) superó el umbral.", icon="⚠️")
-                            st.metric(
-                                label="Ventas Reales (Día de Predicción)",
-                                value=f"€ {report['actual_sales']:,.0f}"
+                    selected_cutoff_date_dt = pd.to_datetime(selected_cutoff_date).date()
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button(f"Evaluar Anomalía para el día: {selected_cutoff_date_dt + datetime.timedelta(days=1)}", width='stretch'):
+                        with st.spinner(f"Ajustando modelo SARIMA con datos hasta {selected_cutoff_date_dt}..."):
+                            
+                            report, _ = predict_next_day_anomaly_sarima( 
+                                series=series_to_analyze, 
+                                cut_off_date=selected_cutoff_date_dt
                             )
-                        elif report['actual_sales'] == "N/A (Dato futuro)":
-                            st.info("Predicción generada. Necesitará el dato real de mañana para la evaluación de anomalía.", icon="⏳")
-                        else:
-                            st.success(f"✅ Venta Real ({report['actual_sales']:,.0f}€) dentro del rango esperado.", icon="👍")
                         
-                    else:
-                        st.error(report)
+                        st.markdown("---")
+                        
+                        # 5. Mostrar Resultados del Reporte
+                        if isinstance(report, dict):
+                            
+                            # Mostrar el resultado principal (PREDICCIÓN)
+                            st.metric(
+                                label=f"Ventas Predichas para {report['prediction_date']}",
+                                value=f"€ {report['predicted_sales']:,.0f}",
+                                delta=f"Umbral de Anomalía: € {report['anomaly_threshold']:,.0f}"
+                            )
+                            
+                            # Mostrar el resultado de la Detección
+                            if report['is_anomaly'] is True:
+                                st.error(f"🚨 ¡ANOMALÍA DETECTADA! La desviación real ({report['deviation_from_prediction']:,.0f}€) superó el umbral.", icon="⚠️")
+                                st.metric(
+                                    label="Ventas Reales (Día de Predicción)",
+                                    value=f"€ {report['actual_sales']:,.0f}"
+                                )
+                            elif report['actual_sales'] == "N/A (Dato futuro)":
+                                st.info("Predicción generada. Necesitará el dato real de mañana para la evaluación de anomalía.", icon="⏳")
+                            else:
+                                st.success(f"✅ Venta Real ({report['actual_sales']:,.0f}€) dentro del rango esperado.", icon="👍")
+                            
+                        else:
+                            st.error(report)
                        
         with all_tabs[4]:
             selected_cinema = st.selectbox(
