@@ -409,7 +409,7 @@ def graficos(df):
                     top_savings_candidates = df_savings.head(5).copy()
                     
                     # 3. Identificar Candidatas Clave para el Cierre (Ahorro Máximo)
-                    df_critical_candidates = df_savings[df_savings['revenue_percentage'] <= threshold_percentage].copy()
+                    df_critical_candidates = df_savings[(df_savings['revenue_percentage'] <= threshold_percentage) | (df_savings['revenue_segment'] <= df_savings['gasto_medio_empleados'])].copy()
 
                     if not df_critical_candidates.empty:
                         total_lost_percentage = df_critical_candidates['revenue_percentage'].sum()
@@ -419,8 +419,10 @@ def graficos(df):
                             value=f"{total_lost_percentage:.2f} %",
                             delta="Esta es la pérdida de ingresos que se sacrificaría para maximizar el ahorro en costes fijos."
                         )
-                        
-                        st.warning(f"🚨 **CANDIDATAS CLAVE AL CIERRE (Contribución < {threshold_percentage:.1f}%):**")
+                        if df_savings['revenue_segment'] <= df_savings['gasto_medio_empleados']:
+                            st.warning("🚨 Algunas franjas tienen un gasto en empleados mayor que su revenue.")
+                        if df_savings['revenue_percentage'] <= threshold_percentage:
+                            st.warning(f"🚨 **CANDIDATAS CLAVE AL CIERRE (Contribución < {threshold_percentage:.1f}%):**")
                         
                         # Mostrar la tabla con las candidatas que cumplen el umbral
                         st.dataframe(
