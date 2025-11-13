@@ -270,7 +270,7 @@ def graficos(df):
 
             st.markdown("---")
             st.header("🕵️ Detección de Anomalías (Análisis SARIMA)")
-            st.markdown("Utiliza el modelo LSTM para predecir las ventas del día siguiente basándose en el historial. El umbral de anomalía se basa en el 95º percentil del error histórico del modelo.")
+            st.markdown("Utiliza el modelo SARIMA para predecir las ventas del día siguiente basándose en el historial. El umbral de anomalía se basa en el 95º percentil del error histórico del modelo.")
 
             # 1. Selección del Cine a Analizar
             selected_cinema_anomaly = st.selectbox(
@@ -299,7 +299,7 @@ def graficos(df):
             )
             selected_cutoff_date_dt = pd.to_datetime(selected_cutoff_date).date()
 
-            if st.button(f"Evaluar Anomalía para el día: {selected_cutoff_date_dt + datetime.timedelta(days=1)}", use_container_width=True):
+            if st.button(f"Evaluar Anomalía para el día: {selected_cutoff_date_dt + datetime.timedelta(days=1)}", width='stretch'):
     
                 with st.spinner(f"Ajustando modelo SARIMA con datos hasta {selected_cutoff_date_dt}..."):
                     
@@ -331,8 +331,6 @@ def graficos(df):
                         st.info("Predicción generada. Necesitará el dato real de mañana para la evaluación de anomalía.", icon="⏳")
                     else:
                         st.success(f"✅ Venta Real ({report['actual_sales']:,.0f}€) dentro del rango esperado.", icon="👍")
-
-                    # st.json(report) # Opcional: para mostrar el detalle completo de la evaluación
                     
                 else:
                     st.error(report)
@@ -387,7 +385,7 @@ def graficos(df):
                         labels=dict(x="Día de la Semana", y="Franja Horaria", color="Gasto Fijo por Turno (€)"),
                         text_auto=True,
                         aspect="auto",
-                        title="Gasto Salarial Promedio por Franja y Día"
+                        title="Gasto Salarial Total por Franja y Día"
                     )
                     fig_heatmap_gasto.update_layout(xaxis_title=None, yaxis_title=None, height=400)
                     st.plotly_chart(fig_heatmap_gasto, width='stretch')
@@ -432,13 +430,13 @@ def graficos(df):
                                 'time_slot': 'Franja Horaria',
                                 'revenue_segment': 'Revenue Absoluto',
                                 'revenue_percentage': '% Revenue Total',
-                                'gasto_medio_empleados': 'Gasto Medio Empleados',
+                                'gasto_medio_empleados': 'Gasto Total Empleados',
                                 'sessions_count': '# Sesiones'
                             })
                             .style.format({
                                 'Revenue Absoluto': "€ {:,.0f}",
                                 '% Revenue Total': "{:.2f} %",
-                                'Gasto Medio Empleados': "€ {:,.0f}"
+                                'Gasto Total Empleados': "€ {:,.0f}"
                             }),
                             width='stretch'
                         )
@@ -458,13 +456,13 @@ def graficos(df):
                             'time_slot': 'Franja Horaria',
                             'revenue_segment': 'Revenue Absoluto',
                             'revenue_percentage': '% Revenue Total',
-                            'gasto_medio_empleados': 'Gasto Medio Empleados',
+                            'gasto_medio_empleados': 'Gasto Total Empleados',
                             'sessions_count': '# Sesiones'
                         })
                         .style.format({
                             'Revenue Absoluto': "€ {:,.0f}",
                             '% Revenue Total': "{:.2f} %",
-                            'Gasto Medio Empleados': "€ {:,.0f}"
+                            'Gasto Total Empleados': "€ {:,.0f}"
                         }),
                         width='stretch'
                     )
