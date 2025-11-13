@@ -413,15 +413,20 @@ def graficos(df):
 
                     if not df_critical_candidates.empty:
                         total_lost_percentage = df_critical_candidates['revenue_percentage'].sum()
-                        
-                        st.metric(
-                            label=f"Pérdida de Revenue si se cierran las franjas con contribución <= {threshold_percentage:.1f}%",
-                            value=f"{total_lost_percentage:.2f} %",
-                            delta="Esta es la pérdida de ingresos que se sacrificaría para maximizar el ahorro en costes fijos."
-                        )
-                        if df_savings['revenue_segment'] <= df_savings['gasto_medio_empleados']:
+                        total_savings = df_critical_candidates['gasto_medio_empleados'].sum() - df_critical_candidates['revenue_segment'].sum()
+                        hay_franjas_perdedoras = (df_critical_candidates['revenue_segment'] < df_critical_candidates['gasto_medio_empleados']).any()
+                        if hay_franjas_perdedoras:
+                            st.metric(
+                                label=f"Ahorro de coste si se cierran las siguientes franjas",
+                                value=f"{total_savings:,.0f} €"
+                            )
                             st.warning("🚨 Algunas franjas tienen un gasto en empleados mayor que su revenue.")
-                        if df_savings['revenue_percentage'] <= threshold_percentage:
+                        debajo_threshold = (df_savings['revenue_percentage'] <= threshold_percentage).any()
+                        if debajo_threshold:
+                            st.metric(
+                                label=f"Pérdida de Revenue si se cierran las franjas con contribución <= {threshold_percentage:.1f}%",
+                                value=f"{total_lost_percentage:.2f} %"
+                            )
                             st.warning(f"🚨 **CANDIDATAS CLAVE AL CIERRE (Contribución < {threshold_percentage:.1f}%):**")
                         
                         # Mostrar la tabla con las candidatas que cumplen el umbral
