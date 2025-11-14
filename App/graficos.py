@@ -270,7 +270,7 @@ def graficos(df):
 
             st.markdown("---")
             st.header("🕵️ Detección de Anomalías (Análisis SARIMA)")
-            st.markdown("Utiliza el modelo SARIMA para predecir las ventas del día siguiente basándose en el historial. El umbral de anomalía se basa en el 95º percentil del error histórico del modelo.")
+            st.markdown("Utiliza el modelo SARIMA para predecir las ventas del día siguiente basándose en el historial.")
             
             analysis_mode = st.radio(
                 "Seleccione el alcance del análisis:",
@@ -309,7 +309,7 @@ def graficos(df):
                     st.warning(f"Datos insuficientes para el lookback de {7} días.")
                 else:
                     selected_cutoff_date = st.date_input(
-                        "Seleccione el último día de datos a USAR (Cut-off Date):",
+                        "Seleccione el último día de datos a USAR:",
                         value=max_date_available,
                         min_value=min_date_available + datetime.timedelta(days=7),
                         max_value=max_date_available
@@ -337,9 +337,8 @@ def graficos(df):
                                 value=f"€ {report['predicted_sales']:,.0f}",
                                 delta=f"Umbral de Anomalía: € {report['anomaly_threshold']:,.0f}"
                             )
-                            
                             # Mostrar el resultado de la Detección
-                            if report['is_anomaly'] is True:
+                            if report['is_anomaly']:
                                 st.error(f"🚨 ¡ANOMALÍA DETECTADA! La desviación real ({report['deviation_from_prediction']:,.0f}€) superó el umbral.", icon="⚠️")
                                 st.metric(
                                     label="Ventas Reales (Día de Predicción)",
