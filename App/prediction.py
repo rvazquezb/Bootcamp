@@ -300,6 +300,7 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     # Predecir un solo paso (el día siguiente)
     forecast = results.predict(start=next_day_dt, end=next_day_dt)
     predicted_sales = forecast.iloc[0]
+    predicted_sales = max(0, predicted_sales)
     
     # 5. EVALUACIÓN DE ANOMALÍA (Si el dato del día siguiente existe)
     if hasattr(next_day_dt, 'date'):
