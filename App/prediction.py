@@ -290,8 +290,9 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     # Error de Predicción (Residual)
     prediction_error = np.abs(train_predict - Y_actual)
     
-    # Definir el umbral de anomalía (Percentil 95 del error histórico)
-    error_threshold = np.percentile(prediction_error, 95) 
+    # Definir el umbral de anomalía 
+    std_deviation = prediction_error.std()
+    error_threshold = 2 * std_deviation
 
     # 4. PREDICCIÓN DEL DÍA SIGUIENTE
     next_day_dt = cut_off_date + pd.Timedelta(days=1)
