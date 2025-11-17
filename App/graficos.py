@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from prediction import predict_next_day_anomaly_sarima, prepare_ts_data, run_sklearn_prediction, run_sarima_prediction, sarima_backtest
 from analisis_costes import prepare_cost_analysis_df, analyze_costs
 
+#Función para mostrar los KPIs principales
 def kpis(df):
     st.markdown("### 🎯 KPIs")
                     
@@ -28,28 +29,27 @@ def kpis(df):
 
     kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
     
-    # KPI 1: REVENUE TOTAL
+    #KPI 1: REVENUE TOTAL
     kpi_col1.metric(
         label="Revenue Total Anual",
         value=f"€ {total_revenue:,.0f}", 
         delta=f"{revenue_delta:,.0f}€ vs Target" 
     )
     
-    # KPI 2: TICKETS VENDIDOS TOTALES
+    #KPI 2: TICKETS VENDIDOS TOTALES
     kpi_col2.metric(
         label="Tickets Vendidos Totales",
         value=f"{total_tickets_sold:,.0f}", 
     )
     
-    # KPI 3: OCUPACIÓN PROMEDIO
+    #KPI 3: OCUPACIÓN PROMEDIO
     kpi_col3.metric(
         label="Ocupación Promedio",
         value=f"{avg_occupation:.2f}%", 
         delta=f"{occupation_delta:.2f}% vs Target" 
     )
 
-    # KPI 4: TASA DE CANCELACIÓN
-    
+    #KPI 4: TASA DE CANCELACIÓN
     kpi_col4.metric(
         label="Tasa de Cancelación",
         value=f"{cancellation_rate_kpi:.2%}", 
@@ -63,7 +63,7 @@ def kpis(df):
         st.markdown("##### 🎯 YTD Revenue Goal")
 
         TARGET_REVENUE = 200000000.00
-        REVENUE_ACTUAL = df['total_sales'].sum()
+        REVENUE_ACTUAL = total_revenue
         
         progreso_porcentaje = (REVENUE_ACTUAL / TARGET_REVENUE) * 100
         progreso_porcentaje = round(progreso_porcentaje, 1) 
@@ -135,6 +135,7 @@ def kpis(df):
         st.plotly_chart(fig_gauge_occ, width='stretch')
         st.metric(label="Progreso %", value=f"{progreso_porcentaje_occ_rounded}%", delta=f"Target: {TARGET_OCCUPATION:.0f}%")
 
+#Función para mostrar gráficos y análisis en distintas ventanas
 def graficos(df):
     st.subheader("Análisis Detallado")
     user_role = st.session_state['user_role']
@@ -144,6 +145,7 @@ def graficos(df):
         tab_titles.append("Predicción de Revenue")
         tab_titles.append("Ahorro de Costes")
     all_tabs = st.tabs(tab_titles)
+    #Primera ventana: matriz de cines
     with all_tabs[0]:
         df_agg = df.groupby('cinema_code').agg(
             total_tickets_sold=('tickets_sold', 'sum'),
@@ -184,6 +186,7 @@ def graficos(df):
             hide_index=True
         )
 
+    #Segunda ventana: análisis de precios
     with all_tabs[1]:
         bins = [0, 5, 10, np.inf]
         labels = ["<5€", "5€ a 10€", ">10€"]
@@ -208,6 +211,7 @@ def graficos(df):
         
         st.plotly_chart(fig_price, width='stretch')
 
+    #Tercera ventana: tendencia semanal
     with all_tabs[2]:
         df['week_of_year'] = df['date'].dt.isocalendar().week.astype(int)
 
@@ -224,22 +228,18 @@ def graficos(df):
         fig_weekly.update_xaxes(tick0=1, dtick=4) 
         
         st.plotly_chart(fig_weekly, width='stretch')
+    #Si el usuario es analista (o admin), mostramos las ventanas adicionales
     if 'Analista' in user_role:
         df_analysis = prepare_cost_analysis_df(df)
         available_cinemas = sorted(df_analysis['cinema_code'].unique())
+
+        #Cuarta ventana: predicción de revenue
         with all_tabs[3]:
             forecast_days = st.slider("Días a predecir", 7, 90, 30)
             df_features, forecast_results_rf, future_dates, historical_mae_rf, backtest_results, backtest_mae_rf = run_sklearn_prediction(df, forecast_periods=forecast_days)
-            forecast_results_sarima, mae_sarima, model_fit_sarima = run_sarima_prediction(df, forecast_periods = forecast_days)
+            forecast_results_sarima, mae_sarima, model_fit_sarima, backtest_mae_sarima = run_sarima_prediction(df, forecast_periods = forecast_days)
             df_series = df.groupby('date')['total_sales'].sum().asfreq('D').ffill()
 
-            # Run SARIMA backtest on the last 90 days
-            aligned_sarima, backtest_mae_sarima = sarima_backtest(
-                df_series,
-                order=(1, 0, 1),
-                seasonal_order=(1, 1, 1, 7),
-                backtest_periods=90
-            )
             sarima_succeeded = forecast_results_sarima is not None and mae_sarima is not None
             st.header("Análisis de Rendimiento del Modelo")
 
@@ -260,12 +260,10 @@ def graficos(df):
             if forecast_results_sarima is not None:
                 st.header("Pronóstico de Ventas (Comparación de Modelos)")
 
-                # 1. Unir resultados en un solo DataFrame
                 comparison_df = forecast_results_rf.rename(columns={'prediction': 'Random Forest'})
                 comparison_df['SARIMA'] = forecast_results_sarima['prediction']
                 comparison_df.index.name = 'Fecha'
 
-                # 2. Crear gráfico
                 st.line_chart(comparison_df)
 
             st.markdown("---")
@@ -280,31 +278,26 @@ def graficos(df):
             )
 
             if analysis_mode == "Por Cine (Específico)":
-                # 2a. Selección del Cine a Analizar (Solo se muestra en modo 'Por Cine')
                 selected_cinema_anomaly = st.selectbox(
                     "Seleccione el Cine para el análisis de Anomalías:",
                     options=available_cinemas, 
                     index=0
                 )
                 
-                # 2b. Preparar la Serie Temporal del Cine
                 series_to_analyze = prepare_ts_data(df, selected_cinema_anomaly)
                 st.subheader(f"Análisis Específico: {selected_cinema_anomaly}")
 
-            else: # analysis_mode == "Ventas Totales (Global)"
-                # 2a. La serie total ya está calculada como df_series
+            else: 
                 series_to_analyze = df_series
-                selected_cinema_anomaly = "TOTALES" # Variable de ayuda para las keys de Streamlit
+                selected_cinema_anomaly = "TOTALES" 
                 st.subheader("Análisis Global: Ventas Totales")
 
             if series_to_analyze.empty or len(series_to_analyze) < 7:
                 st.warning("Datos insuficientes para realizar un análisis SARIMA.")
             else:
-                # 3. Widget para seleccionar el día de CORTE
                 max_date_available = series_to_analyze.index.max().date()
                 min_date_available = series_to_analyze.index.min().date()
 
-                # Asegurar que el día de corte permita el lookback (ANOMALY_WINDOW)
                 if (max_date_available - min_date_available).days < 7:
                     st.warning(f"Datos insuficientes para el lookback de {7} días.")
                 else:
@@ -328,16 +321,13 @@ def graficos(df):
                         
                         st.markdown("---")
                         
-                        # 5. Mostrar Resultados del Reporte
                         if isinstance(report, dict):
                             
-                            # Mostrar el resultado principal (PREDICCIÓN)
                             st.metric(
                                 label=f"Ventas Predichas para {report['prediction_date']}",
                                 value=f"€ {report['predicted_sales']:,.0f}",
                                 delta=f"Umbral de Anomalía: € {report['anomaly_threshold']:,.0f}"
                             )
-                            # Mostrar el resultado de la Detección
                             if report['is_anomaly']:
                                 st.error(f"🚨 ¡ANOMALÍA DETECTADA! La desviación real ({report['deviation_from_prediction']:,.0f}€) superó el umbral.", icon="⚠️")
                                 st.metric(
@@ -351,7 +341,8 @@ def graficos(df):
                             
                         else:
                             st.error(report)
-                       
+
+        #Quinta ventana: análisis de ahorro de costes               
         with all_tabs[4]:
             selected_cinema = st.selectbox(
                 "Seleccione el Cine para analizar:",
@@ -361,7 +352,6 @@ def graficos(df):
 
             if selected_cinema:
                 
-                # Ejecutar el análisis
                 df_impact, total_revenue = analyze_costs(df_analysis, selected_cinema)
                 
                 if df_impact.empty:
@@ -419,13 +409,10 @@ def graficos(df):
                         format="%.1f %%"
                     )
 
-                    # 1. Ordenar por el porcentaje de Revenue (ascendente)
                     df_savings = df_impact.sort_values('revenue_percentage', ascending=True)
                     
-                    # 2. Seleccionar las N peores franjas (ej. las 5 peores, para la tabla)
                     top_savings_candidates = df_savings.head(5).copy()
                     
-                    # 3. Identificar Candidatas Clave para el Cierre (Ahorro Máximo)
                     df_critical_candidates = df_savings[(df_savings['revenue_percentage'] <= threshold_percentage) | (df_savings['revenue_segment'] <= df_savings['gasto_medio_empleados'])].copy()
 
                     if not df_critical_candidates.empty:
@@ -446,7 +433,6 @@ def graficos(df):
                             )
                             st.warning(f"🚨 **CANDIDATAS CLAVE AL CIERRE (Contribución < {threshold_percentage:.1f}%):**")
                         
-                        # Mostrar la tabla con las candidatas que cumplen el umbral
                         st.dataframe(
                             df_critical_candidates[['day_of_week_es', 'time_slot', 'revenue_segment', 'revenue_percentage', 'gasto_medio_empleados', 'sessions_count']]
                             .rename(columns={
@@ -472,7 +458,6 @@ def graficos(df):
                     st.markdown("---")
                     st.markdown("**Las 5 franjas con menor Revenue:**")
                     
-                    # Mostrar la tabla de las 5 peores franjas
                     st.dataframe(
                         top_savings_candidates[['day_of_week_es', 'time_slot', 'revenue_segment', 'revenue_percentage', 'gasto_medio_empleados', 'sessions_count']]
                         .rename(columns={

@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+#Función para mapear show_time a franjas horarias
 def map_show_time_to_slot(show_time):
     if 1 <= show_time <= 15:
         return '01 - 15 (Mañana)'
@@ -10,6 +11,8 @@ def map_show_time_to_slot(show_time):
         return '41 - 60 (Noche)'
     else:
         return 'Otro'
+
+#Función para convertir los días de la semana al español
 @st.cache_data
 def prepare_cost_analysis_df(df):
     df_analysis = df.copy()
@@ -24,10 +27,12 @@ def prepare_cost_analysis_df(df):
     
     return df_analysis
 
+#Función para calcular costes por cine y franja horaria
+@st.cache_data
 def analyze_costs(df, cinema_id):
     HOURS_PER_SHIFT = 8 
     
-    # 1. Filtrar por el cine seleccionado
+    #Filtrar por el cine seleccionado
     df_cinema = df[df['cinema_code'] == cinema_id].copy()
 
     df_cinema['gasto_turno_fijo'] = (
@@ -45,27 +50,26 @@ def analyze_costs(df, cinema_id):
         dias_con_sesiones=('date', 'nunique') 
     ).reset_index()
 
-    # Gasto de un solo turno (fijo por cine y franja - el nocturno tiene plus)
+    #Gasto de un solo turno (fijo por cine y franja)
     df_cinema['gasto_turno_unico'] = df_cinema['n_empleados'] * df_cinema['salario_hora'] * HOURS_PER_SHIFT
     
     gasto_por_franja_unica = df_cinema.groupby('time_slot')['gasto_turno_unico'].first().reset_index()
     gasto_por_franja_unica = gasto_por_franja_unica.rename(columns={'gasto_turno_unico': 'gasto_fijo_diario'})
     
-    # b. Unimos el gasto fijo diario al DF agrupado para poder multiplicarlo
+    #Unimos el gasto fijo diario al DF agrupado para poder multiplicarlo
     df_grouped = pd.merge(df_grouped, gasto_por_franja_unica, on='time_slot', how='left')
 
-    # c. Calculamos el GASTO TOTAL ACUMULADO: Gasto Fijo Diario * Días de Operación
+    #Calculamos el gasto total
     df_grouped['gasto_total_empleados'] = (
         df_grouped['gasto_fijo_diario'] * df_grouped['dias_con_sesiones']
     )
-    
-    # d. Renombramos la columna para que coincida con el uso en el frontend
+ 
     df_grouped['gasto_medio_empleados'] = df_grouped['gasto_total_empleados'] 
     
-    # 5. Calcular % de Revenue
+    #Calcular % de revenue
     df_grouped['revenue_percentage'] = (df_grouped['revenue_segment'] / total_revenue_cinema) * 100
     
-    # 6. Ordenar los días y limpiar
+    #Ordenación por día de la semana
     day_order_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
     df_grouped['day_of_week_es'] = pd.Categorical(df_grouped['day_of_week_es'], categories=day_order_es, ordered=True)
     df_grouped = df_grouped.sort_values(by='day_of_week_es')

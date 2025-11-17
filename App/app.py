@@ -68,6 +68,7 @@ def load_data():
         st.error(f"Detalle del error: {e}")
         return pd.DataFrame() 
 
+#Función para mostrar el formulario de login
 def show_login_form():
     
     st.title("🔐 Acceso a la aplicación")
@@ -95,8 +96,7 @@ def show_login_form():
             else:
                 st.error("Usuario o contraseña incorrectos.")
 
-
-
+#Función para insertar datos en la base de datos
 def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket_use, show_time, tickets_out, capacity):
     try:
         engine = create_engine(NEON_DATABASE_URL)
@@ -134,15 +134,16 @@ def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket
             connection.commit() 
 
         st.cache_data.clear() 
+        st.cache_resource.clear()
         return True
         
     except Exception as e:
         st.error(f"❌ Error al insertar datos: {e}")
         return False
 
+#Función para cambiar la vista activa
 def change_view(view_name):
     st.session_state['active_view'] = view_name
-
 
 def main():
     if not st.session_state['authenticated']:
@@ -158,7 +159,7 @@ def main():
         st.sidebar.markdown(f"**Rol:** {st.session_state['user_role'][0]}")
         df = load_data()
         
-        # Control de vista basado en el rol del usuario
+        #Control de vista basado en el rol del usuario
         st.set_page_config(page_title="Aussie Cines Dashboard", layout="wide")
         st.title("🎬 Aussie Cines") 
         st.subheader(f"👋 Bienvenid@ {st.session_state['username']}")
@@ -228,4 +229,5 @@ def main():
                 graficos(df)
             else:
                 st.error("No fue posible cargar los datos desde Neon.")
+
 main()
