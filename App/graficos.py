@@ -385,7 +385,7 @@ def graficos(df):
                     
                     st.markdown("---")
 
-                    st.subheader("💸 Gasto Fijo por Turno (8h) en Empleados por Franja")
+                    st.subheader("Gasto Fijo por Turno (8h) en Empleados por Franja")
                     fig_heatmap_gasto = px.imshow(
                         df_pivot_gasto, 
                         color_continuous_scale='Blues', 
