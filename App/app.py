@@ -4,9 +4,6 @@ from sqlalchemy import create_engine, text
 import bcrypt
 from graficos import graficos
 from graficos import kpis
-# Conexion a Neon
-NEON_DATABASE_URL = "postgresql://neondb_owner:npg_lz1fJwWeEr7n@ep-aged-flower-aba6hlv1-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require" 
-TABLE_NAME = "ventas_cine_final" 
 
 # Inicializar el estado de sesión si no existe
 if 'authenticated' not in st.session_state:
@@ -19,7 +16,8 @@ if 'authenticated' not in st.session_state:
 # Función para verificar las credenciales 
 def authenticate_user(username, password):
     try:
-        engine = create_engine(NEON_DATABASE_URL)
+        db_url = st.secrets["neon_db"]["connection_string"]
+        engine = create_engine(db_url)
         
         query = text(
             "SELECT u.password_hash, r.role_name "
@@ -54,9 +52,11 @@ def authenticate_user(username, password):
 @st.cache_data
 def load_data():
     try:
-        engine = create_engine(NEON_DATABASE_URL)
+        db_url = st.secrets["neon_db"]["connection_string"]
+        engine = create_engine(db_url)
         
-        df = pd.read_sql_table(TABLE_NAME, con=engine)
+        table_name = st.secrets["table_name"]["table_string"]
+        df = pd.read_sql_table(table_name, con=engine)
         
         if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'])
@@ -99,7 +99,8 @@ def show_login_form():
 #Función para insertar datos en la base de datos
 def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket_use, show_time, tickets_out, capacity):
     try:
-        engine = create_engine(NEON_DATABASE_URL)
+        db_url = st.secrets["neon_db"]["connection_string"]
+        engine = create_engine(db_url)
         
         total_sales = ticket_price * tickets_sold
         occu_perc = (ticket_use / capacity) * 100 
@@ -107,9 +108,9 @@ def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket
         quarter = (date.month - 1) // 3 + 1 
         day = date.day
         day_name = date.strftime("%A")
-
+        table_name = st.secrets["table_name"]["table_string"]
         insert_query = text(
-            "INSERT INTO ventas_cine_final (film_code, cinema_code, total_sales, tickets_sold, tickets_out, show_time, occu_perc, ticket_price, ticket_use, capacity, date, month, quarter, day, day_name) "
+            f"INSERT INTO {table_name} (film_code, cinema_code, total_sales, tickets_sold, tickets_out, show_time, occu_perc, ticket_price, ticket_use, capacity, date, month, quarter, day, day_name) "
             "VALUES (:film_code, :cinema_code, :total_sales, :tickets_sold, :tickets_out, :show_time, :occu_perc, :ticket_price, :ticket_use, :capacity, :date, :month, :quarter, :day, :day_name)"
         )
         
