@@ -257,14 +257,21 @@ def graficos(df):
                     st.metric(label="MAE Backtesting (Propagación)", value=f"{backtest_mae_sarima:,.0f}")
                 else:
                     st.error("No se pudo ajustar el modelo SARIMA. Revise la estacionalidad y los órdenes (p,d,q).")
+                    
             if forecast_results_sarima is not None:
                 st.header("Pronóstico de Ventas (Comparación de Modelos)")
 
-                comparison_df = forecast_results_rf.rename(columns={'prediction': 'Random Forest'})
-                comparison_df['SARIMA'] = forecast_results_sarima['prediction']
-                comparison_df.index.name = 'Fecha'
+                comparison_df_forecast = forecast_results_rf.rename(columns={'prediction': 'Random Forest'})
+                comparison_df_forecast['SARIMA'] = forecast_results_sarima['prediction']
 
-                st.line_chart(comparison_df)
+                df_lookback = df_series.iloc[-30:]
+                df_historical = df_lookback.rename('Datos Reales').to_frame()
+                
+                combined_df = pd.concat([df_historical, comparison_df_forecast], axis=1)
+                
+                combined_df.index.name = 'Fecha'
+
+                st.line_chart(combined_df)
 
             st.markdown("---")
             st.header("🕵️ Detección de Anomalías (Análisis SARIMA)")
@@ -314,7 +321,7 @@ def graficos(df):
                     if st.button(f"Evaluar Anomalía para el día: {selected_cutoff_date_dt + datetime.timedelta(days=1)}", width='stretch'):
                         with st.spinner(f"Ajustando modelo SARIMA con datos hasta {selected_cutoff_date_dt}..."):
                             
-                            report, _ = predict_next_day_anomaly_sarima( 
+                            report, _, next_day_prediction, last_10_days_predictions = predict_next_day_anomaly_sarima( 
                                 series=series_to_analyze, 
                                 cut_off_date=selected_cutoff_date_dt
                             )
@@ -338,7 +345,144 @@ def graficos(df):
                                 st.info("Predicción generada. Necesitará el dato real de mañana para la evaluación de anomalía.", icon="⏳")
                             else:
                                 st.success(f"✅ Venta Real ({report['actual_sales']:,.0f}€) dentro del rango esperado.", icon="👍")
-                            
+ 
+                            # 2. Obtener las 10 predicciones históricas y combinar con la predicción del día siguiente
+                            last_day_of_plot = last_10_days_predictions.index.max()
+                            next_day_date = last_day_of_plot + pd.Timedelta(days=1)
+
+                            future_dates = pd.date_range(
+                                start=last_day_of_plot + pd.Timedelta(days=1), 
+                                periods=1, 
+                                freq='D'
+                            )
+
+                            dates_to_plot = last_10_days_predictions.index.tolist() + future_dates.tolist()
+                            last_10_actual = series_to_analyze.loc[dates_to_plot].rename('Valor Real').to_frame().reset_index()
+                            last_10_actual.columns = ['Fecha', 'Valor Real'] 
+                            num_historical_predictions = len(last_10_days_predictions)
+
+                            forecast_plot_data = pd.DataFrame({
+                                'Fecha': last_10_days_predictions.index.tolist() + [next_day_date], 
+                                'Valor': last_10_days_predictions.tolist() + [report['predicted_sales']], 
+                                'Tipo': ['Predicción'] * num_historical_predictions + ['Predicción Día Siguiente']
+                            })
+
+                            forecast_plot_data['Fecha'] = pd.to_datetime(forecast_plot_data['Fecha'])
+
+                            col_model, col_actual = st.columns(2)
+
+                            with col_model:
+                                fig_model = go.Figure()
+
+                                fig_model.add_trace(go.Bar(
+                                    x=forecast_plot_data[forecast_plot_data['Tipo'] == 'Predicción']['Fecha'],
+                                    y=forecast_plot_data[forecast_plot_data['Tipo'] == 'Predicción']['Valor'],
+                                    name='Predicción Histórica',
+                                    marker_color='skyblue'
+                                ))
+                                
+                                fig_model.add_trace(go.Bar(
+                                    x=forecast_plot_data[forecast_plot_data['Tipo'] == 'Predicción Día Siguiente']['Fecha'],
+                                    y=forecast_plot_data[forecast_plot_data['Tipo'] == 'Predicción Día Siguiente']['Valor'],
+                                    name='Predicción Día Siguiente',
+                                    marker_color='orange'
+                                ))
+
+                                fig_model.update_layout(
+                                    title="Predicciones (10 Días Previos + Próximo Día)",
+                                    height=400,
+                                    showlegend=False
+                                )
+
+                                st.plotly_chart(fig_model, width='stretch')
+
+                            with col_actual:
+                                fig_actual = go.Figure()
+                                
+                                fig_actual.add_trace(go.Bar(
+                                    x=last_10_actual['Fecha'],
+                                    y=last_10_actual['Valor Real'],
+                                    name='Ventas Reales',
+                                    marker_color='darkgreen'
+                                ))
+
+                                fig_actual.update_layout(
+                                    title="Ventas Reales (10 Días Previos + Próximo Día)",
+                                    height=400,
+                                    showlegend=False
+                                )
+
+                                st.plotly_chart(fig_actual, width='stretch') 
+                            df_real = last_10_actual[['Fecha', 'Valor Real']] 
+                            df_predicho = pd.DataFrame({
+                                'Fecha': last_10_days_predictions.index.tolist() + [next_day_date], 
+                                'Valor Predicho': last_10_days_predictions.tolist() + [report['predicted_sales']], 
+                            })
+                            df_predicho['Fecha'] = pd.to_datetime(df_predicho['Fecha'])
+
+                            df_comparacion = pd.merge(
+                                df_real, 
+                                df_predicho, 
+                                on='Fecha', 
+                                how='inner' 
+                            )
+
+                            fig_comparison = px.line(
+                                df_comparacion,
+                                x='Fecha', 
+                                y=['Valor Real', 'Valor Predicho'],
+                                title="Valores Reales vs. Predicción SARIMA (Histórico)",
+                                height=400
+                            )
+
+                            upper_bound = df_comparacion['Valor Predicho'] + report['anomaly_threshold']
+                            lower_bound = df_comparacion['Valor Predicho'] - report['anomaly_threshold']
+
+                            fig_comparison.add_trace(go.Scatter(
+                                x=df_comparacion['Fecha'],
+                                y=lower_bound,
+                                line=dict(width=0,color='rgba(0, 150, 0, 0.2)'), 
+                                name='Límite Inferior',
+                                showlegend=False
+                            ))
+
+                            fig_comparison.add_trace(go.Scatter(
+                                x=df_comparacion['Fecha'],
+                                y=upper_bound,
+                                line=dict(width=0, color = 'rgba(0, 128, 0, 0.2)'), 
+                                fill='tonexty', 
+                                fillcolor='rgba(0, 128, 0, 0.05)',
+                                name='Banda de Umbral',
+                                showlegend=False
+                            ))
+
+                            for trace in fig_comparison.data:
+                                if trace.name in ('Valor Real', 'Valor Predicho'):
+                                    trace.update(line=dict(width=3), zorder=10) 
+
+                            fig_comparison.update_layout(
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom",
+                                    y=1.02,
+                                    xanchor="right",
+                                    x=1
+                                )
+                            )
+
+                            fig_comparison.update_layout(
+                                yaxis_title="", 
+                                xaxis_title="",
+                                legend_title="Tipo de Valor",
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom",
+                                    y=1.02,
+                                    xanchor="right",
+                                    x=1
+                                )
+                            )
+                            st.plotly_chart(fig_comparison, width='stretch')
                         else:
                             st.error(report)
 

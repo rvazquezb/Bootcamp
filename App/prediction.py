@@ -262,6 +262,13 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
     forecast = results.predict(start=next_day_dt, end=next_day_dt)
     predicted_sales = forecast.iloc[0]
     predicted_sales = max(0, predicted_sales)
+    historical_predictions = results.get_prediction()
+
+    # Obtenemos los valores ajustados (predicted_mean) y quitamos el primer día (iloc[1:])
+    fitted_values = historical_predictions.predicted_mean.iloc[1:] 
+
+    # Filtramos para obtener solo los últimos 10 días históricos
+    last_10_days_predictions = fitted_values.iloc[-10:]
     
     #Evaluar si es o no una anomalía
     if hasattr(next_day_dt, 'date'):
@@ -295,4 +302,4 @@ def predict_next_day_anomaly_sarima(series, cut_off_date, look_back=7):
             "is_anomaly": "Pendiente de dato real"
         })
         
-    return report, results
+    return report, results, predicted_sales, last_10_days_predictions
