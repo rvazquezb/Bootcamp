@@ -1,0 +1,5 @@
+# Ignorar archivos específicos de Streamlit
+.streamlit/secrets.toml
+
+# Ignorar archivos de caché
+.streamlit/cache
