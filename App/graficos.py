@@ -260,7 +260,7 @@ def graficos(df):
                     
             if forecast_results_sarima is not None:
                 st.header("Pronóstico de Ventas (Comparación de Modelos)")
-
+                forecast_results_sarima = np.maximum(0, forecast_results_sarima)
                 comparison_df_forecast = forecast_results_rf.rename(columns={'prediction': 'Random Forest'})
                 comparison_df_forecast['SARIMA'] = forecast_results_sarima['prediction']
 
@@ -349,7 +349,7 @@ def graficos(df):
                             # 2. Obtener las 10 predicciones históricas y combinar con la predicción del día siguiente
                             last_day_of_plot = last_10_days_predictions.index.max()
                             next_day_date = last_day_of_plot + pd.Timedelta(days=1)
-
+                            last_10_days_predictions = np.maximum(0, last_10_days_predictions)
                             future_dates = pd.date_range(
                                 start=last_day_of_plot + pd.Timedelta(days=1), 
                                 periods=1, 
