@@ -19,7 +19,7 @@ def get_neon_connection():
 
 def get_snowflake_connection():
     try:
-        secrets = st.secrets["snowflake"]
+        secrets = st.secrets["snow"]
         conn = snowflake.connector.connect(
             user=secrets["user"],
             password=secrets["password"],
