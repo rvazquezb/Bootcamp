@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from prediction import predict_next_day_anomaly_sarima, prepare_ts_data, run_sklearn_prediction, run_sarima_prediction, sarima_backtest
 from analisis_costes import prepare_cost_analysis_df, analyze_costs
+from alerts import send_anomaly_alert
 
 #Función para mostrar los KPIs principales
 def kpis(df):
@@ -340,6 +341,13 @@ def graficos(df):
                                 st.metric(
                                     label="Ventas Reales (Día de Predicción)",
                                     value=f"€ {report['actual_sales']:,.0f}"
+                                )
+                                prediction_date = pd.to_datetime(report['prediction_date'])
+                                send_anomaly_alert(
+                                    fecha=prediction_date, 
+                                    valor_real=report['actual_sales'], 
+                                    valor_predicho=report['predicted_sales'], 
+                                    umbral=report['anomaly_threshold']
                                 )
                             elif report['actual_sales'] == "N/A (Dato futuro)":
                                 st.info("Predicción generada. Necesitará el dato real de mañana para la evaluación de anomalía.", icon="⏳")
