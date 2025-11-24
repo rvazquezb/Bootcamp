@@ -7,7 +7,7 @@ def send_anomaly_alert(fecha, valor_real, valor_predicho, umbral):
     try:
         api_key = st.secrets["brevo"]["api_key"]
         sender_email = st.secrets["brevo"]["sender_email"]
-        receiver_email = "raulvazquez97@hotmail.com" 
+        receiver_email = "rvbarandela@minsait.com" 
         configuration = sib_api_v3_sdk.Configuration()
         configuration.api_key['api-key'] = api_key
         configuration.verify_ssl = False
