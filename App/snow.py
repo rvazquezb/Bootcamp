@@ -6,7 +6,7 @@ import streamlit as st
 
 def get_neon_connection():
     try:
-        secrets = st.secrets["neon-db"]
+        secrets = st.secrets["neon_db"]
         conn_string = secrets["connection_string"]
         conn = psycopg2.connect(conn_string)
         return conn
