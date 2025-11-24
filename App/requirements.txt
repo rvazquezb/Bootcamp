@@ -8,3 +8,4 @@ scikit-learn
 psycopg2-binary
 statsmodels
 sib-api-v3-sdk
+snowflake-connector-python[pandas]
