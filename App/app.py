@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, text
 import bcrypt
 from graficos import graficos
 from graficos import kpis
-import snow
+from snow import sync_data_to_snowflake
 
 # Inicializar el estado de sesión si no existe
 if 'authenticated' not in st.session_state:
@@ -159,7 +159,7 @@ def main():
             
         st.sidebar.button("Cerrar Sesión", on_click=logout)
         st.sidebar.markdown(f"**Rol:** {st.session_state['user_role'][0]}")
-        st.sidebar.button('Sync Snow', on_click=snow.sync_data_to_snowflake)
+        
         df = load_data()
         
         #Control de vista basado en el rol del usuario
@@ -182,7 +182,7 @@ def main():
                 st.sidebar.button("📊 Ver Dashboard", 
                         on_click=change_view, 
                         args=('dashboard',))
-                
+                st.sidebar.button('Sync Snow', on_click=sync_data_to_snowflake)
                 active_view = st.session_state['active_view']
                 if active_view == 'insert_form':
                     st.header("Herramientas de Administración: Inserción de Datos")
