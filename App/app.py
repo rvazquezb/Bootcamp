@@ -98,7 +98,7 @@ def show_login_form():
                 st.error("Usuario o contraseña incorrectos.")
 
 #Función para insertar datos en la base de datos
-def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket_use, show_time, tickets_out, capacity):
+def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket_use, show_time, tickets_out, capacity, n_salas, n_empleados, salario_hora):
     try:
         db_url = st.secrets["neon_db"]["connection_string"]
         engine = create_engine(db_url)
@@ -111,8 +111,8 @@ def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket
         day_name = date.strftime("%A")
         table_name = st.secrets["table_name"]["table_string"]
         insert_query = text(
-            f"INSERT INTO {table_name} (film_code, cinema_code, total_sales, tickets_sold, tickets_out, show_time, occu_perc, ticket_price, ticket_use, capacity, date, month, quarter, day, day_name) "
-            "VALUES (:film_code, :cinema_code, :total_sales, :tickets_sold, :tickets_out, :show_time, :occu_perc, :ticket_price, :ticket_use, :capacity, :date, :month, :quarter, :day, :day_name)"
+            f"INSERT INTO {table_name} (film_code, cinema_code, total_sales, tickets_sold, tickets_out, show_time, occu_perc, ticket_price, ticket_use, capacity, date, month, quarter, day, day_name, n_salas, n_empleados, salario_hora) "
+            "VALUES (:film_code, :cinema_code, :total_sales, :tickets_sold, :tickets_out, :show_time, :occu_perc, :ticket_price, :ticket_use, :capacity, :date, :month, :quarter, :day, :day_name, :n_salas, :n_empleados, :salario_hora)"
         )
         
         with engine.connect() as connection:
@@ -131,7 +131,10 @@ def insert_data(date, film_code, cinema_code, ticket_price, tickets_sold, ticket
                 "month": month,
                 "quarter": quarter,
                 "day": day,
-                "day_name": day_name
+                "day_name": day_name,
+                "n_salas": n_salas,
+                "n_empleados": n_empleados,
+                "salario_hora": salario_hora
             })
             connection.commit() 
 
@@ -206,10 +209,16 @@ def main():
                         ticket_use_input = col_g.number_input("Tickets Usados", min_value=0, step=1)
                         ticket_price_input = col_h.number_input("Precio del Ticket (€)", min_value=0.0, step=0.01, format="%.2f")
 
+                        # Tercera fila
+                        col_i, col_j, col_k = st.columns(3)
+                        n_salas_input = col_i.number_input("n_salas", min_value=1, step=1)
+                        n_empleados_input = col_j.number_input("n_empleados", min_value=1, step=1)
+                        salario_hora_input = col_k.number_input("Salario/hora (€)", min_value=0.0, step=0.01, format="%.2f")
+
                         submit_button = st.form_submit_button(label='💾 Insertar Fila')
 
                         if submit_button:
-                            if insert_data(date_input, film_code_input, cinema_code_input, ticket_price_input, tickets_sold_input, ticket_use_input, show_time_input, tickets_out_input, capacity_input):
+                            if insert_data(date_input, film_code_input, cinema_code_input, ticket_price_input, tickets_sold_input, ticket_use_input, show_time_input, tickets_out_input, capacity_input, n_salas_input, n_empleados_input, salario_hora_input):
                                 st.success(f"Fila insertada correctamente para el cine {cinema_code_input} en la fecha {date_input}.")
                             else:
                                 st.error("No se pudo insertar la fila. Revise los datos o la consola de errores.")

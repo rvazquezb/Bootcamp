@@ -50,86 +50,110 @@ def read_changes_from_neon(conn):
     
     return df, staging_ids
 
-def apply_changes_to_snowflake(conn, df_changes):
-    SNOWFLAKE_DB = conn.database
-    SNOWFLAKE_SCHEMA = conn.schema
-    TEMPORARY_TABLE = "CDC_CHANGES_STAGING" 
+def format_sql_value(value, is_string=False):
+    if pd.isna(value) or value is None:
+        return 'NULL'
     
-    try:
-        success, n_chunks, n_rows, output = write_pandas(
-            conn=conn,
-            df=df_changes,
-            table_name=TEMPORARY_TABLE,
-            database=SNOWFLAKE_DB,
-            schema=SNOWFLAKE_SCHEMA,
-            auto_create_table=True, 
-            overwrite=True,         
-        )
+    if isinstance(value, pd.Timestamp):
+        return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'"
         
-        if not success:
-            raise Exception(f"Fallo al cargar datos a la tabla temporal: {output}")
+    if is_string or isinstance(value, str):
+        safe_value = str(value).replace("'", "''") 
+        return f"'{safe_value}'"
+        
+    return str(value)
 
-    except Exception as e:
-        print(f"Error en la carga de datos a Snowflake: {e}")
-        conn.rollback()
-        raise
+def apply_changes_to_snowflake(conn, neon_conn, df_changes):
     
     cursor = conn.cursor()
-    
-    merge_sql = f"""
-    MERGE INTO {SNOWFLAKE_DB}.{SNOWFLAKE_SCHEMA}.VENTAS_CINE_FINAL AS TARGET
-    USING {TEMPORARY_TABLE} AS SOURCE
-    ON (TARGET.FILM_CODE = SOURCE.FILM_CODE AND TARGET.CINEMA_CODE = SOURCE.CINEMA_CODE AND TARGET.DATE = SOURCE.DATE AND TARGET.SHOW_TIME = SOURCE.SHOW_TIME)
+    cursor_neon = neon_conn.cursor()
+    df_changes = df_changes.sort_values(by='ts_transaccion') 
+    processed_staging_ids = []
+    for index, row in df_changes.iterrows():
+        if not row['copied']:
+            op = row['operacion']
+            
+            where_clause = f"""
+                WHERE FILM_CODE = {row['film_code']} 
+                AND CINEMA_CODE = {row['cinema_code']} 
+                AND SHOW_TIME = {row['show_time']}
+                AND DATE = '{row['date'].strftime('%Y-%m-%d %H:%M:%S')}'
+            """
+            try:
+                if op == 'I':
+                    insert_sql = f"""
+                    INSERT INTO VENTAS_CINE_FINAL (
+                        FILM_CODE, CINEMA_CODE, TOTAL_SALES, TICKETS_SOLD, TICKETS_OUT, SHOW_TIME, 
+                        OCCU_PERC, TICKET_PRICE, TICKET_USE, CAPACITY, DATE, MONTH, QUARTER, 
+                        DAY, DAY_NAME, N_SALAS, N_EMPLEADOS, SALARIO_HORA
+                    )
+                    VALUES (
+                        {row['film_code']}, {row['cinema_code']}, {row['total_sales']}, {row['tickets_sold']}, {row['tickets_out']}, {row['show_time']}, 
+                        {row['occu_perc']}, {row['ticket_price']}, {row['ticket_use']}, {row['capacity']}, '{row['date'].strftime('%Y-%m-%d %H:%M:%S')}', {row['month']}, {row['quarter']}, 
+                        {row['day']}, '{row['day_name']}', {row['n_salas']}, {row['n_empleados']}, {row['salario_hora']}
+                    );
+                    """
+                    cursor.execute(insert_sql)
+                    
+                elif op == 'U':
+                    update_sql = f"""
+                    UPDATE VENTAS_CINE_FINAL SET
+                        TOTAL_SALES = {row['total_sales']},
+                        TICKETS_SOLD = {row['tickets_sold']},
+                        TICKETS_OUT = {row['tickets_out']},
+                        SHOW_TIME = {row['show_time']},
+                        OCCU_PERC = {row['occu_perc']},
+                        TICKET_PRICE = {row['ticket_price']},
+                        TICKET_USE = {row['ticket_use']},
+                        CAPACITY = {row['capacity']},
+                        DATE = {format_sql_value(row['date'].strftime('%Y-%m-%d %H:%M:%S'))},
+                        MONTH = {row['month']},
+                        QUARTER = {row['quarter']},
+                        DAY = {row['day']},
+                        DAY_NAME = '{row['day_name']}',
+                        N_SALAS = {row['n_salas']},
+                        N_EMPLEADOS = {row['n_empleados']},
+                        SALARIO_HORA = {row['salario_hora']}
+                    {where_clause};
+                    """
+                    cursor.execute(update_sql)
+                    
+                elif op == 'D':
+                    delete_sql = f"DELETE FROM VENTAS_CINE_FINAL {where_clause};"
+                    cursor.execute(delete_sql)
+                processed_staging_ids.append(row['staging_id'])
 
-    WHEN MATCHED THEN
-        CASE
-            WHEN SOURCE.OPERACION = 'U' THEN UPDATE SET
-                TARGET.TOTAL_SALES = SOURCE.TOTAL_SALES,
-                TARGET.TICKETS_SOLD = SOURCE.TICKETS_SOLD,
-                TARGET.TICKETS_OUT = SOURCE.TICKETS_OUT,
-                TARGET.SHOW_TIME = SOURCE.SHOW_TIME,
-                TARGET.OCCU_PERC = SOURCE.OCCU_PERC,
-                TARGET.TICKET_PRICE = SOURCE.TICKET_PRICE,
-                TARGET.TICKET_USE = SOURCE.TICKET_USE,
-                TARGET.CAPACITY = SOURCE.CAPACITY,
-                TARGET.MONTH = SOURCE.MONTH,
-                TARGET.QUARTER = SOURCE.QUARTER,
-                TARGET.DAY = SOURCE.DAY,
-                TARGET.DAY_NAME = SOURCE.DAY_NAME,
-                TARGET.N_SALAS = SOURCE.N_SALAS,
-                TARGET.N_EMPLEADOS = SOURCE.N_EMPLEADOS,
-                TARGET.SALARIO_HORA = SOURCE.SALARIO_HORA
-            WHEN SOURCE.OPERACION = 'D' THEN DELETE
-            ELSE NOP 
-        END
+                conn.commit()
+        
+            except Exception as e:
+                # Si algo falla en Snowflake, hacemos rollback y relanzamos
+                conn.rollback() 
+                print(f"Error crítico en Snowflake. Se deshacen los cambios. Error: {e}")
+                raise 
+                
+        else:
+            print(f"Saltando fila ID {row['staging_id']} (Op: {op}) - Ya marcada como copiada.")
 
-    WHEN NOT MATCHED AND SOURCE.OPERACION = 'I' THEN
-        INSERT (
-            FILM_CODE, CINEMA_CODE, TOTAL_SALES, TICKETS_SOLD, TICKETS_OUT, SHOW_TIME, OCCU_PERC, 
-            TICKET_PRICE, TICKET_USE, CAPACITY, DATE, MONTH, QUARTER, DAY, DAY_NAME, 
-            N_SALAS, N_EMPLEADOS, SALARIO_HORA
-        )
-        VALUES (
-            SOURCE.FILM_CODE, SOURCE.CINEMA_CODE, SOURCE.TOTAL_SALES, SOURCE.TICKETS_SOLD, SOURCE.TICKETS_OUT, 
-            SOURCE.SHOW_TIME, SOURCE.OCCU_PERC, SOURCE.TICKET_PRICE, SOURCE.TICKET_USE, SOURCE.CAPACITY, 
-            SOURCE.DATE, SOURCE.MONTH, SOURCE.QUARTER, SOURCE.DAY, SOURCE.DAY_NAME, 
-            SOURCE.N_SALAS, SOURCE.N_EMPLEADOS, SOURCE.SALARIO_HORA
-        );
-    """
+    if processed_staging_ids:
+        ids_placeholder = ','.join([str(id) for id in processed_staging_ids])
+        
+        neon_update_sql = f"""
+            UPDATE ventas_cine_final_staging 
+            SET copied = TRUE
+            WHERE staging_id IN ({ids_placeholder});
+        """
+        try:
+            cursor_neon.execute(neon_update_sql)
+            neon_conn.commit()
+            print(f"Checkpoint exitoso: {len(processed_staging_ids)} filas marcadas como copiadas en Neon.")
+        except Exception as e:
+            neon_conn.rollback()
+            print(f"ALERTA: Fallo al guardar el checkpoint en Neon. Las filas se reprocesarán. Error: {e}")
+            raise
     
-    try:
-        cursor.execute(merge_sql)
-        conn.commit()
-        print("MERGE INTO ejecutado con éxito.")
-        
-    except Exception as e:
-        print(f"Error al ejecutar MERGE INTO: {e}")
-        conn.rollback()
-        raise
-        
-    finally:
-        cursor.execute(f"DROP TABLE IF EXISTS {TEMPORARY_TABLE}")
-        cursor.close()
+    print(f"Aplicación completada. {len(processed_staging_ids)} cambios aplicados en Snowflake.")
+    cursor.close()
+    cursor_neon.close()
 
 def clean_neon_staging_table(conn, staging_ids):
     
@@ -161,7 +185,7 @@ def sync_data_to_snowflake():
             print("No hay cambios nuevos para sincronizar.")
             return
 
-        apply_changes_to_snowflake(sf_conn, df_changes)
+        apply_changes_to_snowflake(sf_conn, neon_conn, df_changes)
 
         clean_neon_staging_table(neon_conn, staging_ids)
         
